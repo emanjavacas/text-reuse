@@ -22,6 +22,8 @@ def quora_pairs(path):
         next(reader)
         for line in reader:
             _, _, _, q1, q2, label, *_ = line
+            if label not in ('1', '0'):
+                continue
             yield (q1.split(), q2.split()), label
 
 
