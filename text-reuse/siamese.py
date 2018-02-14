@@ -7,31 +7,76 @@ import torch.optim as optim
 from sklearn.metrics import accuracy_score
 
 from seqmod.modules.embedding import Embedding
-from seqmod.modules.encoder import RNNEncoder
-from seqmod.modules.dcnn_encoder import DCNNEncoder
+from seqmod.modules.rnn_encoder import RNNEncoder
+from seqmod.modules.cnn_encoder import CNNEncoder
 from seqmod.modules.cnn_text_encoder import CNNTextEncoder
+from seqmod.modules.ff import Highway
 import seqmod.utils as u
 from seqmod.misc import Trainer, StdLogger, EarlyStopping
 
 
-class L1SiameseBase(nn.Module):
-    def __init__(self, *args, **kwargs):
-        super(L1SiameseBase, self).__init__()
+class Siamese(nn.Module):
+    def __init__(self, encoder, objective='manhattan', margin=1.0,
+                 proj_layers=0, dropout=0.2):
+        """
+        objective: one of ('sigmoid', 'manhattan', 'contrastive')
+        """
+        self.objective = objective
+        self.margin = margin
+        super(Siamese, self).__init__()
 
-    def get_pair_encoding(self, pair1, pair2, lengths):
-        raise NotImplementedError
+        self.encoder = encoder
+        encoding_size = encoder.encoding_size[1]
 
-    def forward(self, pair1, pair2, lengths=(None, None)):
-        enc1, enc2 = self.get_pair_encoding(pair1, pair2, lengths=lengths)
-        # average manhattan loss -> probability
-        return torch.exp(-torch.abs(enc1 - enc2).sum(1))
+        self.proj = None
+        if proj_layers > 0:
+            self.proj = Highway(encoding_size, proj_layers, dropout=dropout)
+
+        if self.objective == 'sigmoid':
+            # project to single unit output
+            self.logits = nn.Linear(self.encoder.encoding_size[1], 1)
+
+    def contrastive_loss(self, pred, y):
+        pos = 0.25 * ((y * pred) ** 2)
+        neg = ((1 - y) * (self.margin - pred)).clamp(min=0) ** 2
+        return torch.mean(pos + neg)
+
+    def forward(self, p1, p2, lengths=(None, None)):
+        enc1, enc2 = self.encoder(p1, lengths[0]), self.encoder(p2, lengths[1])
+        if isinstance(enc1, tuple):
+            enc1, enc2 = enc1[0], enc2[0]  # some encoders also return hidden
+
+        if self.proj is not None:
+            enc1, enc2 = self.proj(enc1), self.proj(enc2)
+
+        if self.objective == 'sigmoid':
+            dist = enc1 - enc2
+            output = F.dropout(dist, p=self.dropout, training=self.training)
+            output = self.logits(output).squeeze(1)  # (batch x 1) => (batch)
+            return output
+
+        elif self.objective == 'manhattan':
+            dist = enc1 - enc2
+            return torch.exp(-torch.norm(dist, 1, dim=1))
+
+        elif self.objective == 'contrastive':
+            dist = F.cosine_similarity(enc1, enc2, dim=1)
+            return dist
 
     def loss(self, batch_data, test=False):
         ((pair1, pair1_len), (pair2, pair2_len)), labels = batch_data
+        labels = labels.float()  # transform to float
+        num_examples = sum(pair1_len + pair2_len).data[0]
 
         pred = self(pair1, pair2, lengths=(pair1_len, pair2_len))
-        loss = F.binary_cross_entropy(pred, labels.float())
-        num_examples = sum(pair1_len + pair2_len).data[0]
+        if self.objective == 'sigmoid':
+            loss = F.binary_cross_entropy_with_logits(pred, labels)
+
+        elif self.objective == 'manhattan':
+            loss = F.binary_cross_entropy(pred, labels)
+
+        elif self.objective == 'contrastive':
+            loss = self.contrastive_loss(pred, labels)
 
         if not test:
             loss.backward()
@@ -39,90 +84,51 @@ class L1SiameseBase(nn.Module):
         return (loss.data[0],), num_examples
 
     def predict_proba(self, pair1, pair2, lengths=(None, None)):
-        return self(pair1, pair2, lengths=lengths) > 0.5
+        pred = self(pair1, pair2, lengths=lengths)
+
+        if self.objective == 'sigmoid':
+            # pred is logits
+            return F.sigmoid(pred) > 0.5
+
+        elif self.objective == 'manhattan':
+            return pred > 0.5
+
+        elif self.objective == 'contrastive':
+            # pred is cosine
+            return pred > 0.0
 
 
-class L1SiameseRNN(L1SiameseBase):
-    def __init__(self, embs, hid_dim, num_layers, cell, dropout=0.0, **kwargs):
+def make_rnn_siamese(embs, hid_dim, num_layers, cell,
+                     dropout=0.0, summary='inner-attention', **kwargs):
+    encoder = RNNEncoder(
+        embs, hid_dim, num_layers, cell, dropout=dropout, summary=summary)
 
-        super(L1SiameseRNN, self).__init__()
-
-        self.encoder = RNNEncoder(
-            embs, hid_dim, num_layers, cell, dropout=dropout, **kwargs)
-
-        if self.encoder.encoding_size[0] > 2:
-            raise ValueError("Needs 2D encoding")
-
-    def get_pair_encoding(self, pair1, pair2, lengths):
-        pair1_len, pair2_len = lengths
-        enc1, _ = self.encoder(pair1, lengths=pair1_len)
-        enc2, _ = self.encoder(pair2, lengths=pair2_len)
-        return enc1, enc2
+    return Siamese(encoder, **kwargs)
 
 
-class L1SiameseCNNText(L1SiameseBase):
-    def __init__(self, embs, out_channels=100, kernel_sizes=(5, 4, 3),
-                 dropout=0.0, **kwargs):
-        super(L1SiameseCNNText, self).__init__()
+def make_cnn_siamese(embs, hid_dim, kernel_size, num_layers, dropout=0.0, **kwargs):
+    encoder = CNNEncoder(embs, hid_dim, kernel_size, num_layers, dropout=dropout)
 
-        self.encoder = CNNTextEncoder(
-            embs, out_channels=out_channels, kernel_sizes=kernel_sizes,
-            dropout=dropout, **kwargs)
-
-        self.output = nn.Sequential(nn.Linear(self.encoder.encoding_size[1], 100),
-                                    nn.ReLU())
-
-    def get_pair_encoding(self, pair1, pair2, lengths=None):
-        return self.output(self.encoder(pair1)), self.output(self.encoder(pair2))
+    return Siamese(encoder, **kwargs)
 
 
-class L1SiameseDCNN(L1SiameseBase):
-    def __init__(self, embs, out_channels=(6, 10, 14), kernel_sizes=(7, 5, 3),
-                 ktop=4, folding_factor=4, dropout=0.0, **kwargs):
-        super(L1SiameseDCNN, self).__init__()
+def make_cnn_text_siamese(embs, out_channels=100, kernel_sizes=(5, 4, 3),
+                          dropout=0.0, ktop=1, **kwargs):
+    encoder = CNNTextEncoder(
+        embs, out_channels=out_channels, kernel_sizes=kernel_sizes,
+        dropout=dropout, ktop=ktop)
 
-        self.encoder = DCNNEncoder(
-            embs, out_channels=out_channels, kernel_sizes=kernel_sizes,
-            ktop=ktop, folding_factor=folding_factor, dropout=dropout,
-            **kwargs)
-
-        self.output = nn.Sequential(nn.Linear(self.encoder.encoding_size[1], 100),
-                                    nn.ReLU())
-
-    def get_pair_encoding(self, pair1, pair2, lengths=None):
-        return self.output(self.encoder(pair1)), self.output(self.encoder(pair2))
+    return Siamese(encoder, **kwargs)
 
 
-def make_nn(d, args):
-    embs = Embedding.from_dict(d, args.emb_dim)
+def make_accuracy_hook(patience):
 
-    if args.model.lower() == 'rnn':
-        m = L1SiameseRNN(embs, args.hid_dim, args.layers, args.cell,
-                         dropout=args.dropout, summary=args.encoder_summary)
-
-    elif args.model.lower() == 'dcnn':
-        m = L1SiameseDCNN(embs, dropout=args.dropout)
-
-    elif args.model.lower() == 'cnntext':
-        m = L1SiameseCNNText(embs, dropout=args.dropout)
-
-    u.initialize_model(m, rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
-                       cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}})
-    
-    if args.init_embeddings:
-        embs.init_embeddings_from_file(args.embeddings_path, verbose=True)
-
-        if not args.train_embeddings:
-            # freeze embeddings
-            for p in embs.parameters():
-                p.requires_grad = False
-
-    return m
-
-
-def make_accuracy_hook():
+    early_stopping = None
+    if patience > 0:
+        early_stopping = EarlyStopping(patience)
 
     def hook(trainer, epoch, batch, checkpoint):
+        # accuracy
         preds, trues = [], []
         for batch, label in trainer.datasets['valid']:
             (p1, p1_len), (p2, p2_len) = batch
@@ -133,20 +139,9 @@ def make_accuracy_hook():
         accuracy = accuracy_score(trues, preds)
         trainer.log("info", "Accuracy {:.3f}".format(accuracy))
 
-    return hook
-
-
-def make_validation_hook():
-
-    def hook(trainer, epoch, batch, checkpoint):
-        loss = trainer.validate_model()
-        packed = loss.pack(labels=True)
-        trainer.log("validation_end", {'epoch': epoch, 'loss': packed})
-
-        print([c.weight.norm().data[0] for c in trainer.model.encoder.conv])
+        early_stopping.add_checkpoint(accuracy, trainer.model)
 
     return hook
-        
 
 if __name__ == '__main__':
     import argparse
@@ -160,7 +155,9 @@ if __name__ == '__main__':
     parser.add_argument('--cell', default='LSTM', type=str)
     parser.add_argument('--emb_dim', default=100, type=int)
     parser.add_argument('--hid_dim', default=50, type=int)
+    parser.add_argument('--ktop', default=1, type=int)
     parser.add_argument('--encoder_summary', default='inner-attention')
+    parser.add_argument('--objective', default='manhattan')
     # training
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--batch_size', default=20, type=int)
@@ -170,11 +167,12 @@ if __name__ == '__main__':
     parser.add_argument('--embeddings_path')
     parser.add_argument('--train_embeddings', action='store_true')
     parser.add_argument('--max_norm', default=5., type=float)
+    parser.add_argument('--weight_decay', default=0.0, type=float)
     parser.add_argument('--dropout', default=0.25, type=float)
     parser.add_argument('--word_dropout', default=0.0, type=float)
     parser.add_argument('--patience', default=5, type=int)
     parser.add_argument('--gpu', action='store_true')
-    parser.add_argument('--checkpoint', default=200, type=int)
+    parser.add_argument('--checkpoint', default=50, type=int)
     parser.add_argument('--hooks_per_epoch', default=2, type=int)
     args = parser.parse_args()
     
@@ -192,26 +190,50 @@ if __name__ == '__main__':
     test.set_batch_size(250)
     train.stratify_()
 
+    # embeddings
     d, _ = train.d['src']
-    m = make_nn(d, args)
-    print(m)
+    embs = Embedding.from_dict(
+        d, args.emb_dim, add_positional='cnn' in args.model.lower())
 
+    # build network
+    if args.model.lower() == 'rnn':
+        m = make_rnn_siamese(embs, args.hid_dim, args.layers, args.cell,
+                             dropout=args.dropout, summary=args.encoder_summary,
+                             objective=args.objective)
+
+    elif args.model.lower() == 'cnntext':
+        m = make_cnn_text_siamese(embs, dropout=args.dropout, ktop=args.ktop,
+                                  objective=args.objective)
+
+    elif args.model.lower() == 'cnn':
+        m = make_cnn_siamese(embs, args.hid_dim, 3, args.layers, dropout=args.dropout,
+                             objective=args.objective)
+
+    # initialization
+    u.initialize_model(
+        m,
+        rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
+        # cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}}
+    )
+    if args.init_embeddings:
+        embs.init_embeddings_from_file(args.embeddings_path, verbose=True)
+
+        if not args.train_embeddings:
+            # freeze embeddings
+            for p in embs.parameters():
+                p.requires_grad = False
+
+    print(m)
     print(" * {} trainable parameters".format(
         sum(p.nelement() for p in m.parameters() if p.requires_grad)))
 
     if args.gpu:
         m.cuda()
 
-    parameters = [p for p in m.parameters() if p.requires_grad]
-    optimizer = getattr(optim, args.optim)(parameters, lr=args.lr)
-
-    early_stopping = None
-    if args.patience > 0:
-        early_stopping = EarlyStopping(args.patience)
+    optimizer = getattr(optim, args.optim)(m.parameters(), lr=args.lr)
     trainer = Trainer(m, {'train': train, 'valid': valid}, optimizer,
-                      max_norm=args.max_norm, early_stopping=early_stopping)
+                      max_norm=args.max_norm)
 
     trainer.add_loggers(StdLogger())
-    trainer.add_hook(make_accuracy_hook(), hooks_per_epoch=1)
-    trainer.add_hook(make_validation_hook(), hooks_per_epoch=10)
+    trainer.add_hook(make_accuracy_hook(args.patience), hooks_per_epoch=1)
     trainer.train(args.epochs, args.checkpoint, shuffle=True)
