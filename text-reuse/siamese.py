@@ -1,4 +1,6 @@
 
+import copy
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,13 +18,14 @@ from seqmod.misc import Trainer, StdLogger, EarlyStopping
 
 
 class Siamese(nn.Module):
-    def __init__(self, encoder, objective='manhattan', margin=1.0,
+    def __init__(self, encoder, objective='manhattan', margin=0.2,
                  proj_layers=0, dropout=0.2):
         """
         objective: one of ('sigmoid', 'manhattan', 'contrastive')
         """
         self.objective = objective
         self.margin = margin
+        self.dropout = dropout
         super(Siamese, self).__init__()
 
         self.encoder = encoder
@@ -36,10 +39,28 @@ class Siamese(nn.Module):
             # project to single unit output
             self.logits = nn.Linear(self.encoder.encoding_size[1], 1)
 
-    def contrastive_loss(self, pred, y):
-        pos = 0.25 * ((y * pred) ** 2)
-        neg = ((1 - y) * (self.margin - pred)).clamp(min=0) ** 2
-        return torch.mean(pos + neg)
+    def contrastive_loss(self, sims, y):
+        """
+        Implementation from "Learning Text Similarity with Siamese Recurrent Networks"
+        http://www.aclweb.org/anthology/W16-1617
+        It diverges from original "contrastive loss" definition by Chopra et al 2005,
+        based on euclidean distance instead of cosine (which makes sense for text).
+        http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+        - This paper's definition:
+
+        L_+(x_1, x_2, y) = 1/4 * (1 - cosine_similarity(x_1, x_2)) ^ 2
+        L_-(x_1, x_2, y) = max(0, cosine_similarity(x_1, x_2) - margin) ^ 2
+
+        - Original definition:
+        L_+(x_1, x_2, y) = 1/2 * euclidean_dist(x_1, x_2) ^ 2
+        L_-(x_1, x_2, y) = 1/2 * max(0, margin - euclidean_dist(x_1, x_2)) ^ 2
+        """
+        # cosine distance scaled down by negative sampling factor (1/4)
+        pos = 0.25 * (1 - sims) # ** 2
+        # cosine similarity must be larger than a margin for negative examples
+        neg = torch.clamp(sims - self.margin, min=0)  # ** 2
+
+        return torch.mean(y * pos + (1 - y) * neg)
 
     def forward(self, p1, p2, lengths=(None, None)):
         enc1, enc2 = self.encoder(p1, lengths[0]), self.encoder(p2, lengths[1])
@@ -50,18 +71,16 @@ class Siamese(nn.Module):
             enc1, enc2 = self.proj(enc1), self.proj(enc2)
 
         if self.objective == 'sigmoid':
-            dist = enc1 - enc2
-            output = F.dropout(dist, p=self.dropout, training=self.training)
+            output = F.dropout(enc1 - enc2, p=self.dropout, training=self.training)
             output = self.logits(output).squeeze(1)  # (batch x 1) => (batch)
             return output
 
         elif self.objective == 'manhattan':
-            dist = enc1 - enc2
-            return torch.exp(-torch.norm(dist, 1, dim=1))
+            output = F.dropout(enc1 - enc2, p=self.dropout, training=self.training)
+            return torch.exp(-torch.norm(output, 1, dim=1))
 
         elif self.objective == 'contrastive':
-            dist = F.cosine_similarity(enc1, enc2, dim=1)
-            return dist
+            return F.cosine_similarity(enc1, enc2, dim=1)
 
     def loss(self, batch_data, test=False):
         ((pair1, pair1_len), (pair2, pair2_len)), labels = batch_data
@@ -83,19 +102,30 @@ class Siamese(nn.Module):
 
         return (loss.data[0],), num_examples
 
-    def predict_proba(self, pair1, pair2, lengths=(None, None)):
+    def predict(self, pair1, pair2, lengths=(None, None), threshold=0.5):
         pred = self(pair1, pair2, lengths=lengths)
 
         if self.objective == 'sigmoid':
             # pred is logits
-            return F.sigmoid(pred) > 0.5
+            return F.sigmoid(pred) > threshold
 
         elif self.objective == 'manhattan':
-            return pred > 0.5
+            return pred > threshold
 
         elif self.objective == 'contrastive':
-            # pred is cosine
-            return pred > 0.0
+            # pred is cosine: should be transformed to (0, 1)?
+            return pred > threshold
+
+    def evaluate(self, dataset, threshold=0.5):
+        preds, trues = [], []
+
+        for batch, label in dataset:
+            (p1, p1_len), (p2, p2_len) = batch
+            pred = self.predict(p1, p2, lengths=(p1_len, p2_len), threshold=threshold)
+            trues.extend(label.data.tolist())
+            preds.extend(pred.data.tolist())
+
+        return trues, preds
 
 
 def make_rnn_siamese(embs, hid_dim, num_layers, cell,
@@ -129,17 +159,10 @@ def make_accuracy_hook(patience):
 
     def hook(trainer, epoch, batch, checkpoint):
         # accuracy
-        preds, trues = [], []
-        for batch, label in trainer.datasets['valid']:
-            (p1, p1_len), (p2, p2_len) = batch
-            trues.extend(label.data.tolist())
-            pred = trainer.model.predict_proba(p1, p2, lengths=(p1_len, p2_len))
-            preds.extend(pred.data.tolist())
-
+        trues, preds = trainer.model.evaluate(trainer.datasets['valid'])
         accuracy = accuracy_score(trues, preds)
         trainer.log("info", "Accuracy {:.3f}".format(accuracy))
-
-        early_stopping.add_checkpoint(accuracy, trainer.model)
+        early_stopping.add_checkpoint(accuracy, copy.deepcopy(trainer.model))
 
     return hook
 
@@ -158,6 +181,7 @@ if __name__ == '__main__':
     parser.add_argument('--ktop', default=1, type=int)
     parser.add_argument('--encoder_summary', default='inner-attention')
     parser.add_argument('--objective', default='manhattan')
+    parser.add_argument('--proj_layers', default=0, type=int)
     # training
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--batch_size', default=20, type=int)
@@ -199,20 +223,20 @@ if __name__ == '__main__':
     if args.model.lower() == 'rnn':
         m = make_rnn_siamese(embs, args.hid_dim, args.layers, args.cell,
                              dropout=args.dropout, summary=args.encoder_summary,
-                             objective=args.objective)
+                             objective=args.objective, proj_layers=args.proj_layers)
 
     elif args.model.lower() == 'cnntext':
         m = make_cnn_text_siamese(embs, dropout=args.dropout, ktop=args.ktop,
-                                  objective=args.objective)
+                                  objective=args.objective, proj_layers=args.proj_layers)
 
     elif args.model.lower() == 'cnn':
         m = make_cnn_siamese(embs, args.hid_dim, 3, args.layers, dropout=args.dropout,
-                             objective=args.objective)
+                             objective=args.objective, proj_layers=args.proj_layers)
 
     # initialization
     u.initialize_model(
         m,
-        rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
+        # rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
         # cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}}
     )
     if args.init_embeddings:
@@ -230,7 +254,8 @@ if __name__ == '__main__':
     if args.gpu:
         m.cuda()
 
-    optimizer = getattr(optim, args.optim)(m.parameters(), lr=args.lr)
+    optimizer = getattr(optim, args.optim)(
+        [p for p in m.parameters() if p.requires_grad], lr=args.lr)
     trainer = Trainer(m, {'train': train, 'valid': valid}, optimizer,
                       max_norm=args.max_norm)
 
