@@ -15,7 +15,7 @@ from parse import get_links
 UA = UserAgent().ie
 
 logger = logging.getLogger('scrape')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 def download_target(url):
@@ -40,9 +40,12 @@ if __name__ == '__main__':
 
     with open('scraped.json', 'w+') as f:
         for link in get_links(dirname='../biblindex/SCT1-5/'):
+            logger.info("Downloading [{}]".format(link['url']))
             target = download_target(link['url'])
             obj = {'url': link['url'], 'target': target}
             f.write('{}\n'.format(json.dumps(obj)))
 
             # sleep 7,5 secs on average (6487 * 5 = 13,51 hours)
-            time.sleep(random.randint(5, 10))
+            sleep = random.randint(5, 10)
+            logger.info("Sleeping {} secs".format(sleep))
+            time.sleep()
