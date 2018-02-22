@@ -63,15 +63,15 @@ if __name__ == '__main__':
                 if link['url'] in register:
                     logger.info("Skipping [{}]; already downloaded".format(link['url']))
                     continue
-            
+
                 logger.info("Downloading [{}]".format(link['url']))
                 target = download_target(link['url'])
                 obj = {'url': link['url'], 'target': target}
                 f.write('{}\n'.format(json.dumps(obj)))
                 f.flush()           # force write immediatly
-    
+
                 register.add(obj['url'])
-    
+
                 # sleep 7,5 secs on average (6487 * 5 = 13,51 hours)
                 sleep = random.randint(5, 10)
                 logger.info("Sleeping {} secs".format(sleep))
