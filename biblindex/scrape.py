@@ -53,7 +53,7 @@ def download_target(url):
 
 if __name__ == '__main__':
 
-    with open('register.txt', 'r') as f:
+    with open('register.txt', 'a+') as f:
         register = set([l.strip() for l in f])
 
     try:
@@ -77,7 +77,7 @@ if __name__ == '__main__':
                 logger.info("Sleeping {} secs".format(sleep))
                 time.sleep(sleep)
 
-    except:
+    except KeyboardInterrupt:
         with open('register.txt', 'w') as f:
             for item in register:
                 f.write('{}\n'.format(item))
