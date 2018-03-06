@@ -3,9 +3,9 @@ import copy
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 
+import numpy as np
 from sklearn.metrics import accuracy_score
 from scipy.stats import pearsonr
 
@@ -15,125 +15,25 @@ from seqmod.modules.rnn_encoder import RNNEncoder
 from seqmod.modules.cnn_encoder import CNNEncoder
 from seqmod.modules.cnn_text_encoder import CNNTextEncoder
 from seqmod.modules.ff import Highway
-from seqmod.misc import Trainer, StdLogger, EarlyStopping
+from seqmod.misc import Trainer, StdLogger, EarlyStopping, Checkpoint
 import seqmod.utils as u
 
-
-class NormObjective(nn.Module):
-    """
-    Interpret the norm of the differences as logits of the input pair being similar.
-    """
-    def __init__(self, norm=1):
-        self.norm = norm
-        super(NormObjective, self).__init__()
-
-    def forward(self, enc1, enc2, p=0.0):
-        output = F.dropout(enc1 - enc2, p=p, training=self.training)
-        return torch.exp(-torch.norm(output, self.norm, dim=1))
-
-    def loss(self, pred, labels):
-        return F.binary_cross_entropy(pred, labels)
-
-    def predict(self, pred):
-        return F.sigmoid(pred) > 0.5
+from objectives import NormObjective, SigmoidObjective, CauchyObjective
+from objectives import ContrastiveCosineObjective, ContrastiveEuclideanObjective
 
 
-class SigmoidObjective(nn.Module):
-    """
-    Project to a single unit that is interpreted as the sigmoid logit of the
-    input pair being similar. Defined by Chen 2013 as Gaussian similarity model.
-    """
-    def __init__(self, encoding_size):
-        super(SigmoidObjective, self).__init__()
-        self.logits = nn.Linear(encoding_size, 1, bias=False)
+class MeanMaxCNNEncoder(CNNEncoder):
+    def forward(self, inp, **kwargs):
+        # output: (seq_len x batch x hid_dim)
+        output, _ = super(MeanMaxCNNEncoder, self).forward(inp, **kwargs)
 
-    def forward(self, enc1, enc2, p=0.0):
-        logits = (enc1 - enc2) ** 2
-        logits = F.dropout(logits, p=p, training=self.training)
-        return self.logits(logits).squeeze(1)  # (batch x 1) => (batch)
+        # collapse seq_len
+        return torch.cat([output.mean(0), output.max(0)[0]], dim=1)
 
-    def loss(self, pred, labels):
-        return F.binary_cross_entropy_with_logits(pred, labels)
-
-    def predict(self, pred):
-        return F.sigmoid(pred) > 0.5
-
-
-class CauchyObjective(nn.Module):
-    def __init__(self, encoding_size):
-        super(CauchyObjective, self).__init__()
-        self.logits = nn.Linear(encoding_size, 1, bias=False)
-
-    def forward(self, enc1, enc2, p=0.0):
-        logits = (enc1 - enc2) ** 2
-        logits = F.dropout(logits, p=p, training=self.training)
-        return 1 / (1 + self.logits(logits).clamp(min=0).squeeze(1))
-
-    def loss(self, pred, labels):
-        return F.binary_cross_entropy(pred, labels)
-
-    def predict(self, pred):
-        return pred > 0.5
-
-
-class ContrastiveCosineObjective(nn.Module):
-    """
-    Implementation from "Learning Text Similarity with Siamese Recurrent Networks"
-    http://www.aclweb.org/anthology/W16-1617
-    It diverges from original "contrastive loss" definition by Chopra et al 2005,
-    based on euclidean distance instead of cosine (which makes sense for text).
-
-    L_+(x_1, x_2, y) = 1/4 * (1 - cosine_similarity(x_1, x_2)) ^ 2
-    L_-(x_1, x_2, y) = max(0, cosine_similarity(x_1, x_2) - margin) ^ 2
-
-    where 1/4 is the weight which should be tune with respect to the proportion
-    of positive versus negative examples.
-    """
-    def __init__(self, weight=0.5, margin=0.2):
-        self.margin = margin
-        self.weight = weight
-        super(ContrastiveCosineObjective, self).__init__()
-
-    def forward(self, enc1, enc2, p=0.0):
-        return F.cosine_similarity(enc1, enc2, dim=1)
-
-    def loss(self, sims, y):
-        # cosine distance scaled down by negative sampling factor (1/4)
-        pos = self.weight * (1 - sims) ** 2
-        # cosine similarity must be larger than a margin for negative examples
-        neg = torch.clamp(sims - self.margin, min=0) ** 2
-
-        return torch.mean(y * pos + (1 - y) * neg)
-
-    def predict(self, pred):
-        return pred
-
-
-class ContrastiveEuclideanObjective(nn.Module):
-    """
-    http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
-
-    L_+(x_1, x_2, y) = 1/2 * euclidean_dist(x_1, x_2) ^ 2
-    L_-(x_1, x_2, y) = 1/2 * max(0, margin - euclidean_dist(x_1, x_2)) ^ 2
-    """
-    def __init__(self, weight=0.5, margin=2):
-        self.weight = weight
-        self.margin = margin
-        super(ContrastiveEuclideanObjective, self).__init__()
-
-    def forward(self, enc1, enc2, p=0.0):
-        return F.pairwise_distance(enc1, enc2, p=p)
-
-    def loss(self, dists, y):
-        # euclidean distance must be low for positive examples
-        pos = weight * dists ** 2
-        # euclidean distance must at least as large as margin for negative examples
-        neg = torch.clamp(self.margin - dists, min=0) ** 2
-
-        return torch.mean(y * pos + (1- y) * neg)
-
-    def predict(self, pred):
-        return pred
+    @property
+    def encoding_size(self):
+        return 2, super(MeanMaxCNNEncoder, self).encoding_size[1] * 2
+    
 
 
 class Siamese(nn.Module):
@@ -159,6 +59,8 @@ class Siamese(nn.Module):
             self.objective = ContrastiveEuclideanObjective(**kwargs)
         elif loss == 'cauchy':
             self.objective = CauchyObjective(encoder.encoding_size[1])
+        else:
+            raise ValueError("Unknown objective [{}]".format(loss))
 
     def forward(self, p1, p2, lengths=(None, None)):
         enc1 = self.encoder(p1, lengths=lengths[0])
@@ -199,23 +101,31 @@ class Siamese(nn.Module):
         return trues, preds
 
 
-def make_classification_hook(patience):
+def make_validation_hook(patience, checkpoint=None):
 
     early_stopping = None
     if patience > 0:
         early_stopping = EarlyStopping(patience)
 
-    def hook(trainer, epoch, batch, checkpoint):
+    def hook(trainer, epoch, batch, check):
         # accuracy
         trues, preds = trainer.model.evaluate(trainer.datasets['valid'])
         if isinstance(trainer.model.objective, ContrastiveCosineObjective) or \
            isinstance(trainer.model.objective, ContrastiveEuclideanObjective):
-            r, pval = pearsonr(np.array(preds), np.array(trues).astype(np.float))
-            trainer.log("info", "Correlation {:.3f}".format(r))
+            metric, pval = pearsonr(np.array(preds), np.array(trues).astype(np.float))
+            trainer.log("info", "Correlation {:.3f}".format(metric))
         else:
             metric = accuracy_score(trues, preds)
             trainer.log("info", "Accuracy {:.3f}".format(metric))
-        early_stopping.add_checkpoint(1 - metric)  # the lower the better
+
+        model, loss = None, 1 - metric  # lower must be better
+        if early_stopping is not None:
+            model = copy.deepcopy(trainer.model).cpu()
+            early_stopping.add_checkpoint(loss, model=model)
+        if checkpoint is not None:
+            if model is None:
+                model = copy.deepcopy(trainer.model).cpu()
+            checkpoint.save(model, loss)
 
     return hook
 
@@ -241,8 +151,11 @@ if __name__ == '__main__':
     parser.add_argument('--optim', default='Adam', type=str)
     parser.add_argument('--lr', default=0.001, type=float)
     parser.add_argument('--init_embeddings', action='store_true')
-    parser.add_argument('--embeddings_path')
+    parser.add_argument('--embeddings_path',
+                        default='/home/corpora/word_embeddings/' +
+                        'glove.840B.300d.txt')
     parser.add_argument('--train_embeddings', action='store_true')
+    parser.add_argument('--init_from_lm', help='path to LM model')
     parser.add_argument('--max_norm', default=5., type=float)
     parser.add_argument('--weight_decay', default=0.0, type=float)
     parser.add_argument('--dropout', default=0.25, type=float)
@@ -251,6 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--checkpoint', default=50, type=int)
     parser.add_argument('--hooks_per_epoch', default=2, type=int)
+    parser.add_argument('--save', action='store_true')
     args = parser.parse_args()
     
     if args.corpus.lower() == 'msrp':
@@ -265,7 +179,7 @@ if __name__ == '__main__':
     print(" * {} test batches".format(len(test)))
     valid.set_batch_size(250)
     test.set_batch_size(250)
-    train.sort_()
+    train.sort_(key=lambda pair: len(pair[0]))
 
     # embeddings
     d, _ = train.d['src']
@@ -274,16 +188,22 @@ if __name__ == '__main__':
 
     # build network
     if args.model.lower() == 'rnn':
-        encoder = RNNEncoder(
-            embs, args.hid_dim, args.layers, args.cell, dropout=args.dropout,
-            summary=args.encoder_summary)
+        if args.init_from_lm is not None:
+            encoder = RNNEncoder.from_lm(
+                u.load_model(args.init_from_lm), embeddings=embs,
+                summary=args.encoder_summary, dropout=args.dropout)
+        else:
+            encoder = RNNEncoder(
+                embs, args.hid_dim, args.layers, args.cell, dropout=args.dropout,
+                summary=args.encoder_summary)
     elif args.model.lower() == 'cnn':
-        encoder = CNNEncoder(embs, args.hid_dim, 3, args.layers, dropout=args.dropout)
+        encoder = MeanMaxCNNEncoder(embs, args.hid_dim, 3, args.layers, dropout=args.dropout)
     elif args.model.lower() == 'cnntext':
         encoder = CNNTextEncoder(embs, out_channels=100, kernel_sizes=(5, 4, 3),
                                  dropout=args.dropout, ktop=args.ktop)
     elif args.model.lower() == 'mwe':
-        encoder = MaxoutWindowEncoder(embs, args.layers, dropout=args.dropout)
+        encoder = MaxoutWindowEncoder(
+            embs, args.layers, maxouts=3, downproj=128, dropout=args.dropout)
 
     m = Siamese(encoder, loss=args.objective, proj_layers=args.proj_layers,
                 dropout=args.dropout)
@@ -294,7 +214,10 @@ if __name__ == '__main__':
         # rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
         # cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}}
     )
+
     if args.init_embeddings:
+        if args.init_from_lm is not None:
+            print("Ignoring init_embeddings because init_from_lm")
         embs.init_embeddings_from_file(args.embeddings_path, verbose=True)
 
         if not args.train_embeddings:
@@ -314,6 +237,13 @@ if __name__ == '__main__':
     trainer = Trainer(
         m, {'train': train, 'valid': valid}, optimizer, max_norm=args.max_norm)
 
-    trainer.add_loggers(StdLogger())
-    trainer.add_hook(make_classification_hook(args.patience), hooks_per_epoch=1)
+    checkpoint, logfile = None, '/tmp/logfile'
+    if args.save:
+        checkpoint = Checkpoint('Siamese-%s' % args.corpus, buffer_size=3).setup(args)
+        logfile = checkpoint.checkpoint_path('logfile.txt')
+
+    trainer.add_loggers(StdLogger(outputfile=logfile))
+    trainer.add_hook(
+        make_validation_hook(args.patience, checkpoint=checkpoint), hooks_per_epoch=2)
+
     trainer.train(args.epochs, args.checkpoint, shuffle=True)
