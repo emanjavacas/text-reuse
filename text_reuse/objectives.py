@@ -19,8 +19,11 @@ class NormObjective(nn.Module):
     def loss(self, pred, labels):
         return F.binary_cross_entropy(pred, labels)
 
-    def predict(self, pred):
-        return F.sigmoid(pred) > 0.5
+    def score(self, output):
+        return F.sigmoid(output)
+
+    def predict(self, score):
+        return score > 0.5
 
 
 class SigmoidObjective(nn.Module):
@@ -40,8 +43,11 @@ class SigmoidObjective(nn.Module):
     def loss(self, pred, labels):
         return F.binary_cross_entropy_with_logits(pred, labels)
 
-    def predict(self, pred):
-        return F.sigmoid(pred) > 0.5
+    def score(self, output):
+        return F.sigmoid(output)
+
+    def predict(self, score):
+        return score > 0.5
 
 
 class CauchyObjective(nn.Module):
@@ -57,8 +63,11 @@ class CauchyObjective(nn.Module):
     def loss(self, pred, labels):
         return F.binary_cross_entropy(pred, labels)
 
-    def predict(self, pred):
-        return pred > 0.5
+    def score(self, output):
+        return output
+
+    def predict(self, score):
+        return score > 0.5
 
 
 class BaseContrastiveObjective(nn.Module):
@@ -74,8 +83,8 @@ class BaseContrastiveObjective(nn.Module):
 
         return torch.mean(y * pos + (1 - y) * neg)
 
-    def predict(self, pred):
-        return pred
+    def score(self, output):
+        return output
 
 
 class ContrastiveCosineObjective(BaseContrastiveObjective):

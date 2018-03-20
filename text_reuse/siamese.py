@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 import numpy as np
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 from scipy.stats import pearsonr
 
 from seqmod.modules.embedding import Embedding
@@ -86,19 +86,21 @@ class Siamese(nn.Module):
 
         return (loss.data[0],), num_examples
 
-    def predict(self, pair1, pair2, lengths=(None, None)):
-        return self.objective.predict(self(pair1, pair2, lengths=lengths))
+    def score(self, pair1, pair2, lengths=(None, None)):
+        return self.objective.score(self(pair1, pair2, lengths=lengths))
 
     def evaluate(self, dataset):
-        preds, trues = [], []
+        preds, trues, scores = [], [], []
 
         for batch, label in dataset:
             (p1, p1_len), (p2, p2_len) = batch
-            pred = self.predict(p1, p2, lengths=(p1_len, p2_len))
+            score = self.score(p1, p2, lengths=(p1_len, p2_len))
+            pred = self.objective.predict(score)
             trues.extend(label.data.tolist())
             preds.extend(pred.data.tolist())
+            scores.extend(score.data.tolist())
 
-        return trues, preds
+        return trues, preds, scores
 
 
 def make_validation_hook(patience, checkpoint=None):
@@ -109,16 +111,13 @@ def make_validation_hook(patience, checkpoint=None):
 
     def hook(trainer, epoch, batch, check):
         # accuracy
-        trues, preds = trainer.model.evaluate(trainer.datasets['valid'])
-        if isinstance(trainer.model.objective, ContrastiveCosineObjective) or \
-           isinstance(trainer.model.objective, ContrastiveEuclideanObjective):
-            metric, pval = pearsonr(np.array(preds), np.array(trues).astype(np.float))
-            trainer.log("info", "Correlation {:.3f}".format(metric))
-        else:
-            metric = accuracy_score(trues, preds)
-            trainer.log("info", "Accuracy {:.3f}".format(metric))
+        trues, preds, scores = trainer.model.evaluate(trainer.datasets['valid'])
+        corr, _ = pearsonr(np.array(scores), np.array(trues).astype(np.float))
+        preds = np.array(preds).clip(0, 1)  # some objectives don't return proper preds
+        acc, auc = accuracy_score(trues, preds), roc_auc_score(trues, preds)
+        trainer.log("info", "R {:.3f}; Acc {:.3f}; AUC {:.3f}".format(corr, acc, auc))
 
-        model, loss = None, 1 - metric  # lower must be better
+        model, loss = None, 1 - corr  # lower must be better
         if early_stopping is not None:
             model = copy.deepcopy(trainer.model).cpu()
             early_stopping.add_checkpoint(loss, model=model)
@@ -128,6 +127,7 @@ def make_validation_hook(patience, checkpoint=None):
             checkpoint.save(model, loss)
 
     return hook
+
 
 if __name__ == '__main__':
     import argparse
@@ -173,18 +173,15 @@ if __name__ == '__main__':
         from datasets import load_quora as loader
 
     print("Loading data")
-    train, valid, test = loader(gpu=args.gpu, batch_size=args.batch_size)
+    train, valid, _ = loader(gpu=args.gpu, batch_size=args.batch_size)
     print(" * {} train batches".format(len(train)))
     print(" * {} valid batches".format(len(valid)))
-    print(" * {} test batches".format(len(test)))
     valid.set_batch_size(250)
-    test.set_batch_size(250)
-    train.sort_(key=lambda pair: len(pair[0]))
+    train.sort_(key=lambda pair: len(pair[0]), sort_by='src').shuffle_().stratify_()
 
     # embeddings
     d, _ = train.d['src']
-    embs = Embedding.from_dict(
-        d, args.emb_dim, add_positional='cnn' in args.model.lower())
+    embs = Embedding.from_dict(d, args.emb_dim, add_positional='cnn' in args.model.lower())
 
     # build network
     if args.model.lower() == 'rnn':
@@ -209,21 +206,20 @@ if __name__ == '__main__':
                 dropout=args.dropout)
 
     # initialization
-    u.initialize_model(
-        m,
-        # rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
-        # cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}}
-    )
+    if not args.init_from_lm:
+        u.initialize_model(
+            m,
+            # rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
+            # cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}}
+        )
 
-    if args.init_embeddings:
-        if args.init_from_lm is not None:
-            print("Ignoring init_embeddings because init_from_lm")
-        embs.init_embeddings_from_file(args.embeddings_path, verbose=True)
+        if args.init_embeddings:
+            embs.init_embeddings_from_file(args.embeddings_path, verbose=True)
 
-        if not args.train_embeddings:
-            # freeze embeddings
-            for p in embs.parameters():
-                p.requires_grad = False
+    if not args.train_embeddings:
+        # freeze embeddings
+        for p in embs.parameters():
+            p.requires_grad = False
 
     print(m)
     print(" * {} trainable parameters".format(
@@ -234,6 +230,7 @@ if __name__ == '__main__':
 
     optimizer = getattr(optim, args.optim)(
         [p for p in m.parameters() if p.requires_grad], lr=args.lr, weight_decay=1e-6)
+    scheduler = None            # TODO!
     trainer = Trainer(
         m, {'train': train, 'valid': valid}, optimizer, max_norm=args.max_norm)
 
@@ -243,7 +240,7 @@ if __name__ == '__main__':
         logfile = checkpoint.checkpoint_path('logfile.txt')
 
     trainer.add_loggers(StdLogger(outputfile=logfile))
-    trainer.add_hook(
-        make_validation_hook(args.patience, checkpoint=checkpoint), hooks_per_epoch=2)
+    trainer.add_hook(make_validation_hook(args.patience, checkpoint=checkpoint),
+                     hooks_per_epoch=args.hooks_per_epoch)
 
     trainer.train(args.epochs, args.checkpoint, shuffle=True)
