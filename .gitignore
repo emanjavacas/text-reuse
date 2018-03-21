@@ -99,3 +99,10 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# Data
+/biblindex/SCT1-5/
+
+# Emacs
+*~
+\u#*
