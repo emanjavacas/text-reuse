@@ -9,6 +9,11 @@ from seqmod.misc import Dict, PairedDataset
 import seqmod.utils as u
 
 
+MSRP_PATH = '/home/manjavacas/corpora/MSRParaphraseCorpus/'
+QUORA_PATH = '/home/manjavacas/corpora/'
+SICK_PATH = '/home/manjavacas/corpora/SICK/'
+
+
 def msrp_pairs(path):
     with open(path, 'r', encoding='utf-8-sig') as f:
         header = next(f).strip().split('\t')
@@ -68,13 +73,20 @@ def sick_pairs(path):
 
 def default_pairs(path):
     with open(path, 'r') as f:
-        for line in f:
-            s1, s2, label = line.split('\t')
-            yield (s1.split(), s2.split()), label
+        for idx, line in enumerate(f):
+            try:
+                s1, s2, label = line.split('\t')
+                yield (s1.split(), s2.split()), label
+            except Exception as e:
+                print("Error on line {}".format(idx))
+                raise e
 
 
-def load_dataset(loader, path, test=None, gpu=False, batch_size=100,
-                 d=None, preprocessing=None, use_vocab=True, dtype=int, **kwargs):
+def load_dataset(loader, path, test=None, valid=None,
+                 include_test=True, include_valid=True,
+                 gpu=False, batch_size=100,
+                 d=None, preprocessing=None, use_vocab=True, **kwargs):
+
     path = os.path.expanduser(path)
 
     train_pairs, train_labels = zip(*loader(path))
@@ -84,7 +96,7 @@ def load_dataset(loader, path, test=None, gpu=False, batch_size=100,
         d.fit(s for pair in train_pairs for s in pair)
     labels = Dict(
         sequential=False, force_unk=False, use_vocab=use_vocab,
-        preprocessing=preprocessing, dtype=dtype
+        preprocessing=preprocessing, dtype=float
     ).fit(train_labels)
 
     # transform [(a1, b1), ...] -> ([a1, a2], [b1, b2])
@@ -93,34 +105,48 @@ def load_dataset(loader, path, test=None, gpu=False, batch_size=100,
         train_pairs, train_labels, {'src': (d, d), 'trg': labels}, gpu=gpu,
         return_lengths=True, batch_size=batch_size)
 
-    if test is not None:
-        test_pairs, test_labels = zip(*loader(os.path.expanduser(test)))
-        test_pairs, test_labels = tuple(zip(*test_pairs)), list(test_labels)
-        test = PairedDataset(
-            test_pairs, test_labels, {'src': (d, d), 'trg': labels}, gpu=gpu,
-            batch_size=batch_size, return_lengths=True)
-        train, valid = train.splits(test=0.1, dev=None, shuffle=True)
+    if include_test:
+        if test is not None:
+            test_pairs, test_labels = zip(*loader(os.path.expanduser(test)))
+            test_pairs, test_labels = tuple(zip(*test_pairs)), list(test_labels)
+            test = PairedDataset(
+                test_pairs, test_labels, {'src': (d, d), 'trg': labels}, gpu=gpu,
+                batch_size=batch_size, return_lengths=True)
+        else:
+            train, test = train.splits(test=0.1, dev=None, shuffle=True)
     else:
-        train, valid, test = train.splits(test=0.1, dev=0.1, shuffle=True)
+        test = None
+
+    if include_valid:
+        if valid is not None:
+            valid_pairs, valid_labels = zip(*loader(os.path.expanduser(valid)))
+            valid_pairs, valid_labels = tuple(zip(*valid_pairs)), list(valid_labels)
+            valid = PairedDataset(
+                valid_pairs, valid_labels, {'src': (d, d), 'trg': labels}, gpu=gpu,
+                batch_size=batch_size, return_lengths=True)
+        else:
+            train, valid = train.splits(test=0.1, dev=None, shuffle=True)
+    else:
+        valid = None
     
     return train, valid, test
 
 
-def load_msrp(path='~/corpora/MSRParaphraseCorpus/', **kwargs):
+def load_msrp(path=MSRP_PATH, **kwargs):
     path = (path + '/msr_paraphrase_{}_tokenized.txt').format
     return load_dataset(default_pairs, path('train'), test=path('test'), **kwargs)
 
 
-def load_quora(path='~/corpora/', **kwargs):
+def load_quora(path=QUORA_PATH, **kwargs):
     path = os.path.join(path, 'quora_duplicate_questions_tokenized.tsv')
     return load_dataset(default_pairs, path, **kwargs)
 
 
-def load_sick(path='~/corpora/SICK/', **kwargs):
-    path = os.path.join(path, 'SICK_{}.txt').format
-    return load_dataset(sick_pairs, path('train_full'), test=path('test_annotated'),
-                        preprocessing=encode_sick_label, use_vocab=False, dtype=float,
-                        **kwargs)
+def load_sick(path=SICK_PATH, **kwargs):
+    path = os.path.join(path, 'SICK_{}_tokenized.txt').format
+    return load_dataset(
+        default_pairs, path('train'), test=path('test_annotated'), valid=path('trial'),
+        preprocessing=encode_sick_label, use_vocab=False, dtype=float, **kwargs)
 
 
 if __name__ == '__main__':
@@ -164,5 +190,14 @@ if __name__ == '__main__':
                     tokenize(' '.join(s2)),
                     label))
 
-    elif args.corpus == 'snli':
-        pass
+    elif args.corpus == 'sick':
+        path = '/home/manjavacas/corpora/SICK/'
+        for fname in ['SICK_test_annotated', 'SICK_train_full',
+                      'SICK_train', 'SICK_trial', 'SICK']:
+            getpath = (os.path.join(path, fname) + '{}.txt').format
+            with open(getpath('_tokenized'), 'w+') as f:
+                for (s1, s2), label in sick_pairs(getpath('')):
+                    f.write('{}\t{}\t{}\n'.format(
+                        tokenize(' '.join(s1)),
+                        tokenize(' '.join(s2)),
+                        label))

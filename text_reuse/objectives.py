@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 
 class NormObjective(nn.Module):
@@ -24,6 +25,28 @@ class NormObjective(nn.Module):
 
     def predict(self, score):
         return score > 0.5
+
+
+class MultinomialObjective(nn.Module):
+    """Cross-entropy loss for soft multinomial targets"""
+    def __init__(self, encoding_size, nclass):
+        self.nclass = nclass
+        super(MultinomialObjective, self).__init__()
+
+        self.logits = nn.Linear(encoding_size, nclass)
+
+    def forward(self, enc1, enc2, p=0.0):
+        dists = (enc1 - enc2) ** 2
+        dists = F.dropout(dists, p=p, training=self.training)
+        return self.logits(dists)
+
+    def loss(self, pred, labels):
+        "Cross entropy with logits for continuous (soft) targets"
+        return torch.mean(torch.sum(-labels * F.log_softmax(pred, 1), 1))
+
+    def score(self, output):
+        r = torch.arange(1, self.nclass + 1, out=torch.zeros_like(output.data))
+        return F.softmax(output, dim=1) @ Variable(r, volatile=True)
 
 
 class SigmoidObjective(nn.Module):
@@ -83,8 +106,11 @@ class BaseContrastiveObjective(nn.Module):
 
         return torch.mean(y * pos + (1 - y) * neg)
 
+    def forward(self, enc1, enc2, **kwargs):
+        raise NotImplementedError
+
     def score(self, output):
-        return output
+        return -output
 
 
 class ContrastiveCosineObjective(BaseContrastiveObjective):
@@ -104,13 +130,18 @@ class ContrastiveCosineObjective(BaseContrastiveObjective):
     A different approach would be to 
     """
     def __init__(self, weight=0.5, margin=2):
-        super(ContrastiveCosineObjective, self).__init__(weight=weight, margin=margin)
+        super(ContrastiveCosineObjective, self).__init__(
+            weight=weight, margin=margin)
 
     def forward(self, enc1, enc2, **kwargs):
-        # Angular distance in range [0, 1]
+        # # Angular distance in range [0, 1]
         # import math
         # return torch.acos(F.cosine_similarity(enc1, enc2, dim=1)) / math.pi
+        # Cosine distance in [0, 2]
         return 1 - F.cosine_similarity(enc1, enc2, dim=1)
+
+    def predict(self, output):
+        return output < 1       # output is in (0, 2)
 
 
 class ContrastiveEuclideanObjective(BaseContrastiveObjective):
@@ -121,15 +152,17 @@ class ContrastiveEuclideanObjective(BaseContrastiveObjective):
     L_-(x_1, x_2, y) = 1/2 * max(0, margin - euclidean_dist(x_1, x_2)) ^ 2
     """
     def __init__(self, weight=0.5, margin=2):
-        super(ContrastiveEuclideanObjective, self).__init__(weight=weight, margin=margin)
+        super(ContrastiveEuclideanObjective, self).__init__(
+            weight=weight, margin=margin)
 
     def forward(self, enc1, enc2, **kwargs):
         return F.pairwise_distance(enc1, enc2)
 
 
-class ContrastiveMahalanobisObjective(nn.Module):
-    def __init__(self, encoding_size, weight=0.5, margin=1):
-        super(ContrastiveMahalanobisObjective, self).__init__(weight=weight, margin=margin)
+class ContrastiveMahalanobisObjective(BaseContrastiveObjective):
+    def __init__(self, encoding_size, weight=0.5, margin=2):
+        super(ContrastiveMahalanobisObjective, self).__init__(
+            weight=weight, margin=margin)
         # PSD weights
         self.W = nn.Parameter(torch.Tensor(encoding_size, encoding_size))
 
@@ -145,8 +178,9 @@ class ContrastiveMahalanobisObjective(nn.Module):
         dists = enc1 - enc2
         batch, encoding_size = dists.size()
         # get PSD projection
-        M = (self.W @ self.W).unsqueeze(0).extend(batch, encoding_size, encoding_size)
+        M = (self.W @ self.W).unsqueeze(0).repeat(batch, 1, 1)
         # project feature-wise distances
         output = M.bmm(dists.unsqueeze(2))  # (batch x encoding_size x 1)
         # dot product with feature-wise distances
         return (output.squeeze(2) * dists).sum(1)  # (batch)
+

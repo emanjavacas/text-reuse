@@ -1,5 +1,6 @@
 
 import copy
+import types
 
 import torch
 import torch.optim as optim
@@ -18,19 +19,6 @@ def cross_entropy_with_logits(output, targets):
     return torch.mean(torch.sum(-targets * F.log_softmax(output, 1), 1))
 
 
-def pearsonr_hook(dataset, early_stopping):
-
-    def hook(trainer, epoch, batch, checkpoint):
-        p, s, mse = trainer.model.validate(dataset)
-        trainer.log("info", "Validation pearsonr: {:g}".format(p))
-        trainer.log("info", "Validation spearmanr: {:g}".format(s))
-        trainer.log("info", "Validation MSE: {:g}".format(mse))
-        # early stop on MSE probably instead of pearsonr?
-        early_stopping.add_checkpoint(mse, copy.deepcopy(trainer.model).cpu())
-
-    return hook
-
-
 class LogisticRegression(nn.Module):
     """
     Simple Soft LogisticRegression classifier on Skipthought output encodings
@@ -40,10 +28,6 @@ class LogisticRegression(nn.Module):
         super(LogisticRegression, self).__init__()
 
         self.encoder = encoder
-        # don't train skipthought encoder
-        for p in self.encoder.parameters():
-            p.requires_grad = False
-
         self.ff = nn.Linear(encoder.encoding_size[1] * 2, nclass)
 
     def trainable_parameters(self):
@@ -68,16 +52,6 @@ class LogisticRegression(nn.Module):
         probs = F.softmax(self(inp1, inp2), dim=1)
         return probs.data.cpu() @ torch.arange(1, self.nclass + 1)
 
-    def train_model(self, train, valid, epochs, checkpoint=10, lr=0.001):
-        optimizer = optim.Adam(list(self.trainable_parameters()), lr=lr)
-        trainer = Trainer(self, {'train': train}, optimizer)
-        trainer.add_loggers(StdLogger())
-        trainer.add_hook(pearsonr_hook(valid, EarlyStopping(3, maxsize=2)),
-                         hooks_per_epoch=1)
-        (best_model, _), _ = trainer.train(epochs, checkpoint, shuffle=True)
-
-        return best_model
-
     def validate(self, dataset):
         preds, scores = [], []
         for (inp1, inp2), labels in dataset:
@@ -94,27 +68,65 @@ class LogisticRegression(nn.Module):
         return p, s, mse
 
 
+def train_model(model, train, valid, epochs, checkpoint=50, lr=0.001, check_epochs=50):
+    optimizer = optim.Adam(list(model.trainable_parameters()), lr=lr)
+    trainer = Trainer(model, {'train': train, 'valid': valid}, optimizer)
+    early_stopping = EarlyStopping(1, maxsize=2)
+
+    def on_epoch_end(self, epoch, loss, examples, duration):
+        self.log("epoch_end", {"epoch": epoch,
+                               "loss": loss.pack(),
+                               "examples": examples,
+                               "duration": duration})
+
+        if epoch > 0 and epoch % check_epochs == 0:
+            p, s, mse = model.validate(valid)
+            self.log("info", "Validation pearsonr: {:g}".format(p))
+            self.log("info", "Validation spearmanr: {:g}".format(s))
+            self.log("info", "Validation MSE: {:g}".format(mse))
+            # early stop on MSE probably instead of pearsonr?
+            early_stopping.add_checkpoint(1 - p, copy.deepcopy(model).cpu())
+
+    trainer.on_epoch_end = types.MethodType(on_epoch_end, trainer)
+    trainer.add_loggers(StdLogger())
+    (best_model, _), _ = trainer.train(epochs, checkpoint, shuffle=True)
+    return best_model
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('model')
-    parser.add_argument('--lr', default=0.001, type=float)
+    parser.add_argument('--lr', default=0.01, type=float)
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--batch_size', default=10, type=int)
     parser.add_argument('--epochs', default=10, type=int)
-
     args = parser.parse_args()
 
+    import utils
+    from text_reuse.datasets import load_sick, default_pairs, SICK_PATH
     lr = LogisticRegression(u.load_model(args.model).encoder)
+    targets = utils.get_targets(
+        lr.encoder.embeddings.d.vocab,
+        default_pairs(SICK_PATH + 'SICK_tokenized.txt'))
+
+    lr.encoder.embeddings.expand_space(
+        # '/home/corpora/word_embeddings/w2v.googlenews.300d.bin',
+        '/home/corpora/word_embeddings/fasttext.wiki.en.bin',
+        targets=targets,
+        words=targets + lr.encoder.embeddings.d.vocab)
+
+    # don't train skipthought encoder
+    for p in lr.encoder.parameters():
+        p.requires_grad = False
     d = lr.encoder.embeddings.d
 
-    from text_reuse.datasets import load_sick
     train, valid, test = load_sick(batch_size=args.batch_size, d=d, gpu=args.gpu)
 
     if args.gpu:
         lr.cuda()
 
-    best_model = lr.train_model(train, valid, args.epochs)
+    best_model = train_model(lr, train, valid, args.epochs, lr=args.lr)
     if args.gpu:
         best_model.cuda()
 
