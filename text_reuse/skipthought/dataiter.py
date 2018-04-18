@@ -32,9 +32,12 @@ def lines(*paths, min_len=1, max_len=-1, verbose=True):
                 for line in f:
                     num += 1
                     line = line.strip().split()
-                    if len(line) < min_len or (max_len >= 0 and len(line) > max_len):
-                        line = None
-                    yield line
+                    if len(line) < min_len:
+                        yield None
+                    elif (max_len > 0 and len(line) > max_len):
+                        yield line[:max_len]  # crop
+                    else:
+                        yield line
             except UnicodeDecodeError:
                 if verbose:
                     print("[{}]: Read error at line {}".format(path, num))
