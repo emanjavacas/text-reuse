@@ -67,7 +67,7 @@ class DataIter(object):
     # - selecting both contexts results in less pairs
 
     def __init__(self, d, *paths, gpu=False, includes=(True, True),
-                 min_len=3, max_len=50, shuffle=True):
+                 min_len=3, max_len=50, shuffle=True, always_reverse=False):
         self.d = d
         self.paths = list(paths)
         self.gpu = gpu
@@ -75,6 +75,7 @@ class DataIter(object):
         self.min_len = min_len
         self.max_len = max_len
         self.shuffle = shuffle
+        self.always_reverse = always_reverse
 
     def wrap(self, data, reverse=False):
         data = list(self.d.transform(data))
@@ -96,17 +97,23 @@ class DataIter(object):
 
         if self.prevline and self.nextline:
             prevline, nextline = zip(*sents)
-            sents = (self.wrap(prevline), self.wrap(nextline, reverse=True))
+            sents = (self.wrap(prevline, reverse=self.always_reverse),
+                     self.wrap(nextline, reverse=True))
         elif self.prevline:
-            sents = (self.wrap(sents), None)
+            sents = (self.wrap(sents, reverse=self.always_reverse), None)
         else:
             sents = (None, self.wrap(sents, reverse=True))
 
         return inp, sents
 
     def batches(self, buf, batch_size):
-        sort_idx = 1 if self.prevline else 0  # sort by target length
-        buf, batches = sorted(buf, key=lambda tup: len(tup[1][sort_idx])), []
+        def key(tup):  # sort by target lengths
+            if self.prevline and self.nextline:
+                return len(tup[1][0])
+            else:
+                return len(tup[1])
+
+        buf, batches = sorted(buf, key=key), []
 
         while len(buf) >= batch_size:
             batches.append(self.pack_batch(buf[:batch_size]))
@@ -136,7 +143,6 @@ class DataIter(object):
                         buf.append((current, prevline))
                     elif self.nextline and nextline is not None:
                         buf.append((current, nextline))
-
             batches, buf = self.batches(buf, batch_size)
             for batch in batches:
                 yield batch
@@ -161,11 +167,13 @@ if __name__ == '__main__':
     import seqmod
     import glob
 
+    min_len, max_len = 3, 35
     if args.action == 'dict':
         D = seqmod.misc.dataset.Dict(
             pad_token=seqmod.utils.PAD, bos_token=seqmod.utils.BOS,
             eos_token=seqmod.utils.EOS, max_size=args.max_size
-        ).fit((line for line in lines(*args.files) if line is not None))
+        ).fit((line for line in lines(*args.files, min_len=min_len, max_len=max_len)
+               if line is not None))
         seqmod.utils.save_model(
             D, '{}.vocab{}.dict'.format(args.dict_path, args.max_size))
 
@@ -182,7 +190,6 @@ if __name__ == '__main__':
         create_sample_files(files=500)
 
     else:
-        min_len, max_len = 3, 35
         if args.dict_path:
             D = seqmod.load_model(args.dict_path)
         else:
@@ -208,4 +215,4 @@ if __name__ == '__main__':
         from statistics import mean
         print("Sents: {}; speed: {:.3f} msec/batch; buffer: {}".format(
             sents, mean(speed) * 1000, args.buffer_size))
-    
+
