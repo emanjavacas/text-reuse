@@ -1,54 +1,46 @@
 
+import os
 import tqdm
 import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import f1_score, accuracy_score, confusion_matrix
+from scipy.linalg import norm
 
 import seqmod.utils as u
 
+from text_reuse.skipthought.model import SkipThoughts, Loss
 
-def encode_dataset(encoder, dataset, use_feats):
+
+def encode_dataset(model, A, B, labels, use_feats, use_norm=True):
     """
     Encode pairs to output features
     """
-    output_feats, output_labels = None, None
+    enc1, enc2 = model.encode(A), model.encode(B)
 
-    for batch, labels in tqdm.tqdm(dataset):
-        (inp1, len1), (inp2, len2) = batch
-        (enc1, _), (enc2, _) = encoder(inp1, lengths=len1), encoder(inp2, lengths=len2)
-        enc1, enc2 = enc1.data.cpu().numpy(), enc2.data.cpu().numpy()
-        labels = labels.data.cpu().numpy()
-        feats = np.concatenate([np.abs(enc1 - enc2), enc1 * enc2], axis=1)
+    if use_norm:
+        enc1 = enc1 / norm(enc1, axis=1)[:, None]
+        enc2 = enc2 / norm(enc2, axis=1)[:, None]
 
-        if use_feats:
-            d = encoder.embeddings.d
-            reserved = set([d.get_bos(), d.get_eos(), d.get_pad(), d.get_unk()])
-            A = [[d.vocab[i] for i in s if i not in reserved] for s in inp1.data.t()]
-            B = [[d.vocab[i] for i in s if i not in reserved] for s in inp2.data.t()]
-            feats = np.concatenate([feats, count_feats(A, B)], axis=1)
+    feats = np.concatenate([np.abs(enc1 - enc2), enc1 * enc2], axis=1)
 
-        if output_labels is None:
-            output_labels = labels
-        else:
-            output_labels = np.concatenate([output_labels, labels], axis=0)
+    if use_feats:
+        feats = np.concatenate([feats, count_feats(A, B)], axis=1)
 
-        if output_feats is None:
-            output_feats = feats
-        else:
-            output_feats = np.concatenate([output_feats, feats], axis=0)
+    # if use_feats: # normalize count feature to -1, 1 range
+    #     feats[:, -6:] = MinMaxScaler(feature_range=(-1, 1)).fit_transform(feats[:, -6:])
 
-    return output_feats, output_labels
+    return feats, np.array(labels, dtype=np.float)
 
 
 def encode_dataset_debug(path, A, B, labels, use_feats):
     """
-    Just for debugging, it loads preprocessed data
+    Just for debugging, it loads preprocessed data by original implementation
     """
     feats = np.load(path)
     if use_feats:
         feats = np.concatenate([feats, count_feats(A, B)], axis=1)
-    return feats, np.array(labels)
+    return feats, np.array(labels, dtype=np.float)
 
 
 def count_feats(A, B):
@@ -89,7 +81,7 @@ def count_feats(A, B):
 
 def eval_kfold(feats, labels, k=10, shuffle=True):
     kf = KFold(n_splits=k, shuffle=shuffle)
-    Cs = [2 ** C for C in range(0, 9)]  # try values
+    Cs = [2 ** C for C in range(5)]  # try values
     scores = []
 
     for C in Cs:
@@ -106,20 +98,19 @@ def eval_kfold(feats, labels, k=10, shuffle=True):
         scores.append(np.mean(run_scores))
 
     best_C = Cs[np.argmax(scores)]
-    print("Best C: {}".format(best_C))
+
     return best_C
 
 
 def evaluate(train_X, train_y, test_X, test_y, use_kfold=False, k=10):
-    C = 4
-    if use_kfold:
-        C = eval_kfold(train_X, train_y, k=k)
-
+    C = 4 if not use_kfold else eval_kfold(train_X, train_y, k=k)
     clf = LogisticRegression(C=C).fit(train_X, train_y)
-
     preds = clf.predict(test_X)
-    print("F1: {:g}".format(f1_score(test_y, preds)))
-    print("Acc: {:g}".format(accuracy_score(test_y, preds)))
+
+    print("Confusion matrix:\n{}".format(str(confusion_matrix(test_y, preds))))
+    print("Best C: {}".format(C))
+
+    return f1_score(test_y, preds), accuracy_score(test_y, preds), C
     
 
 if __name__ == '__main__':
@@ -128,42 +119,60 @@ if __name__ == '__main__':
     parser.add_argument('--model')
     parser.add_argument('--use_kfold', action='store_true')
     parser.add_argument('--use_feats', action='store_true')
+    parser.add_argument('--use_norm', action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
+    parser.add_argument('--embeddings',
+                        default='/home/corpora/word_embeddings/fasttext.wiki.en.bin')
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
+    from text_reuse.datasets import default_pairs, MSRP_PATH
+    import utils
+
     if not args.debug:
-        encoder = u.load_model(args.model).encoder
-    
-        import utils
-        from text_reuse.datasets import load_msrp, MSRP_PATH, default_pairs
+        model = u.load_model(args.model)
+        model.eval()
+
+        # expand
         path = (MSRP_PATH + '/msr_paraphrase_{}_tokenized.txt').format
         targets = utils.get_targets(
-            encoder.embeddings.d.vocab,
+            model.encoder.embeddings.d.vocab,
             default_pairs(path('train')), default_pairs(path('test')))
-        encoder.embeddings.expand_space(
-            '/home/corpora/word_embeddings/w2v.googlenews.300d.bin', targets=targets,
-            words=targets + encoder.embeddings.d.vocab)
-    
-        if args.gpu:
-            encoder.cuda()
-    
-        train, _, test = load_msrp(
-            include_valid=False, d=encoder.embeddings.d,
-            gpu=args.gpu, batch_size=args.batch_size)
-    
-        train_X, train_y = encode_dataset(encoder, train, use_feats=args.use_feats)
-        test_X, test_Y = encode_dataset(encoder, test, use_feats=args.use_feats)
-        evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
+        model.encoder.embeddings.expand_space(
+            args.embeddings,
+            targets=targets, words=targets + model.encoder.embeddings.d.vocab)
 
-    else:
-        from text_reuse.datasets import default_pairs, MSRP_PATH
+        if args.gpu:
+            model.cuda()
+
         # train
         train_path = MSRP_PATH + 'msr_paraphrase_train_tokenized.txt'
         X, y = zip(*list(default_pairs(train_path)))
         (A, B) = zip(*X)
-        y = np.array(y, dtype=np.float)
+        train_X, train_y = encode_dataset(
+            model, A, B, y, use_feats=args.use_feats, use_norm=args.use_norm)
+
+        # test
+        test_path = MSRP_PATH + 'msr_paraphrase_test_tokenized.txt'
+        X, y = zip(*list(default_pairs(test_path)))
+        (A, B) = zip(*X)
+        test_X, test_y = encode_dataset(
+            model, A, B, y, use_feats=args.use_feats, use_norm=args.use_norm)
+
+        f1, acc, C = evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
+        with open(os.path.join(os.path.dirname(args.model), 'msrp.csv'), 'a') as f:
+            formatter = "\nModel: {}\tF1: {:g}\tAcc: {:g}\tC: {:g}\tfeats: {}" + \
+                        "\tNorm: {}\tEmbs: {}"
+            f.write(formatter.format(os.path.basename(args.model), f1, acc, C,
+                                     str(args.use_feats), str(args.use_norm),
+                                     os.path.basename(args.embeddings)))
+
+    else:
+        # train
+        train_path = MSRP_PATH + 'msr_paraphrase_train_tokenized.txt'
+        X, y = zip(*list(default_pairs(train_path)))
+        (A, B) = zip(*X)
         train_X, train_y = encode_dataset_debug(
             '/home/manjavacas/train_msrp.npy', A, B, y, use_feats=args.use_feats)
     
@@ -171,8 +180,7 @@ if __name__ == '__main__':
         test_path = MSRP_PATH + 'msr_paraphrase_test_tokenized.txt'
         X, y = zip(*list(default_pairs(test_path)))
         (A, B) = zip(*X)
-        y = np.array(y, dtype=np.float)
         test_X, test_y = encode_dataset_debug(
-            'home/manjavacas/test_msrp.npy', A, B, y, use_feats=args.use_feats)
-        evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
-
+            '/home/manjavacas/test_msrp.npy', A, B, y, use_feats=args.use_feats)
+        f1, acc, C = evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
+        print("F1: {:g}\tAcc: {:g}\tC: {:g}".format(f1, acc, C))

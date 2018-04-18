@@ -1,17 +1,23 @@
 
+import os
+import glob
 import math
 import time
 import tqdm
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
+from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch import optim
 
 from seqmod.modules.embedding import Embedding
 from seqmod.modules.rnn_encoder import RNNEncoder
-from seqmod.modules.torch_utils import flip, pack_sort, shards
+from seqmod.modules.softmax import FullSoftmax, SampledSoftmax
+from seqmod.modules.torch_utils import flip, shards
 from seqmod.misc import Checkpoint, text_processor
 import seqmod.utils as u
 
@@ -24,10 +30,22 @@ def run_decoder(decoder, thought, hidden, inp, lengths):
     """
     # project thought across length dimension
     inp = torch.cat([inp, thought.unsqueeze(0).repeat(len(inp), 1, 1)], dim=2)
-    # pack for faster processing
-    inp, unsort = pack_sort(inp, lengths)
+
+    # sort faster processing
+    lengths, sort = torch.sort(lengths, descending=True)
+    _, unsort = sort.sort()
+    if isinstance(hidden, tuple):
+        hidden = hidden[0][:,sort,:], hidden[1][:,sort,:]
+    else:
+        hidden = hidden[:,sort,:]
+
+    # pack
+    inp = pack(inp[:, sort], lengths.tolist())
+
+    # run decoder
     output, _ = decoder(inp, hidden)
-    # unpack and turn into original batch order
+
+    # unpack & unsort
     output, _ = unpack(output)
     output = output[:, unsort]
 
@@ -45,7 +63,7 @@ MODES = {
 class Loss(nn.Module):
 
     def __init__(self, embeddings, cell, thought_dim, hid_dim,
-                 dropout=0.0, mode='clone'):
+                 dropout=0.0, mode='clone', softmax='tied'):
 
         if mode not in MODES:
             raise ValueError("Unknown mode {}".format(mode))
@@ -77,8 +95,19 @@ class Loss(nn.Module):
             nll_weight[embeddings.d.get_pad()] = 0
         self.register_buffer('nll_weight', nll_weight)
 
-        # logits
-        self.logits = nn.Linear(hid_dim, embeddings.num_embeddings)
+        if softmax == 'single':
+            self.logits = FullSoftmax(
+                hid_dim, embeddings.embedding_dim, embeddings.num_embeddings)
+        elif softmax == 'tied':
+            self.logits = FullSoftmax(
+                hid_dim, embeddings.embedding_dim, embeddings.num_embeddings,
+                tie_weights=True)
+            self.logits.tie_embedding_weights(embeddings)
+        elif softmax == 'sampled':
+            self.logits = SampledSoftmax(
+                hid_dim, embeddings.embedding_dim, embeddings.num_embeddings)
+        else:
+            raise ValueError("Unknown softmax {}".format(softmax))
 
     def forward(self, thought, hidden, sents):
         for idx, (sent, rnn) in enumerate(zip(sents, self._all_rnns)):
@@ -100,20 +129,28 @@ class Loss(nn.Module):
         loss, num_examples = 0, 0
 
         for out, trg, examples in self.forward(thought, hidden, sents):
-            for shard in shards({{'output': out, 'target': trg}}, test=test, size=200):
-                shard_loss = F.cross_entropy(
-                    self.logits(shard['output'].view(-1, self.hid_dim)),
-                    shard['target'].view(-1), size_average=False,
-                    weight=self.nll_weight, ignore_index=self.embeddings.d.get_pad())
+            dec_loss = 0
+
+            for shard in shards({'out': out, 'trg': trg}, test=test, size=20):
+                out, trg = shard['out'].view(-1, self.hid_dim), shard['trg'].view(-1)
+                if isinstance(self.logits, SampledSoftmax) and self.training:
+                    out, new_trg = self.logits(out, targets=trg, normalize=False)
+                    shard_loss = F.cross_entropy(out, new_trg, size_average=False)
+                else:
+                    shard_loss = F.cross_entropy(
+                        self.logits(out, normalize=False), trg, size_average=False,
+                        weight=self.nll_weight)
                 shard_loss /= examples
 
                 if not test:
                     shard_loss.backward(retain_graph=True)
 
-                loss += shard_loss.data[0]
+                dec_loss += shard_loss.data[0]
+
+            loss += math.exp(dec_loss)
             num_examples += examples
 
-        return math.exp(loss), num_examples
+        return loss, num_examples
 
 
 class SkipThoughts(nn.Module):
@@ -122,6 +159,7 @@ class SkipThoughts(nn.Module):
                  embeddings,
                  # model opts
                  mode,
+                 softmax='single',
                  cell='GRU',
                  hid_dim=2400,
                  num_layers=1,
@@ -132,8 +170,8 @@ class SkipThoughts(nn.Module):
                  max_norm=5.,
                  optimizer='Adam',
                  lr=0.001,
-                 save_freq=1000,
-                 update_freq=25,
+                 save_freq=50000,
+                 update_freq=500,
                  checkpoint=None):
 
         # training
@@ -149,7 +187,7 @@ class SkipThoughts(nn.Module):
                                   train_init=False, add_init_jitter=False)
         self.decoder = Loss(
             embeddings, cell, self.encoder.encoding_size[1], hid_dim,
-            mode=mode, dropout=dropout)
+            mode=mode, dropout=dropout, softmax=softmax)
 
         self.optimizer = getattr(optim, optimizer)(list(self.parameters()), lr)
 
@@ -166,7 +204,7 @@ class SkipThoughts(nn.Module):
                    dec_params - emb_params,
                    emb_params + enc_params + dec_params - 2 * emb_params))
 
-    def train(self, batches):
+    def train_model(self, batches):
         start, total_loss, total_examples, num_batches = time.time(), 0, 0, 0
         log_batches = tqdm.tqdm(
             batches, postfix={'loss': 'unknown', 'words/sec': 'unknown'})
@@ -187,8 +225,11 @@ class SkipThoughts(nn.Module):
 
             if (idx + 1) % self.save_freq == 0 and checkpoint is not None:
                 # must go before the update logic to avoid division by zero
-                self.checkpoint.save_nbest(self, loss=total_loss / num_batches)
+                # self.checkpoint.save_nbest(self, loss=total_loss / num_batches)
+                self.eval()
                 self.checkpoint.save_nlast(self)
+                self.train()
+                print(" ")
 
             if (idx + 1) % self.update_freq == 0:
                 restart = time.time()
@@ -198,20 +239,50 @@ class SkipThoughts(nn.Module):
                      'words/sec': '{:.2f}'.format(speed)})
                 start, total_loss, total_examples, num_batches = restart, 0, 0, 0
 
+    def encode(self, sents, batch_size=100):
+        """
+        Encode a number of input sentences, where each sentence is a list of strings
+        """
+        d = self.encoder.embeddings.d
+        sents = list(d.transform(sents))
+        feats = np.zeros((len(sents), self.encoder.encoding_size[1]), dtype=np.float)
+        processed = 0
+
+        while len(sents) > 0:
+            num_examples = min(batch_size, len(sents))
+            batch = sents[:num_examples]
+            inp, lens = d.pack(batch, return_lengths=True)
+            inp, lens = Variable(inp, volatile=True), torch.LongTensor(lens)
+
+            if next(self.parameters()).is_cuda:
+                inp, lens = inp.cuda(), lens.cuda()
+
+            output, _ = self.encoder(inp, lens)
+            output = output.data.cpu().numpy()
+
+            for idx, f in enumerate(output):
+                feats[processed + idx,:] = f
+
+            sents = sents[num_examples:]
+            processed += num_examples
+
+        return feats
+
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     # dataset
-    parser.add_argument('--paths', nargs='+', required=True)
+    parser.add_argument('--paths', required=True)
     parser.add_argument('--dict_path', required=True)
-    parser.add_argument('--min_len', type=int, default=3)
+    parser.add_argument('--min_len', type=int, default=2)
     parser.add_argument('--max_len', type=int, default=35)
     parser.add_argument('--lower', action='store_true')
     parser.add_argument('--num', action='store_true')
     parser.add_argument('--level', default='word')
     # model
     parser.add_argument('--mode', default='clone')
+    parser.add_argument('--softmax', default='single')
     parser.add_argument('--emb_dim', type=int, default=620)
     parser.add_argument('--hid_dim', type=int, default=2400)
     parser.add_argument('--num_layers', type=int, default=1)
@@ -229,10 +300,10 @@ if __name__ == '__main__':
     parser.add_argument('--lr_schedule_checkpoints', type=int, default=1)
     parser.add_argument('--lr_schedule_factor', type=float, default=1)
     parser.add_argument('--max_norm', type=float, default=5.)
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=2)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--gpu', action='store_true')
-    parser.add_argument('--save_freq', type=int, default=1000)
+    parser.add_argument('--save_freq', type=int, default=50000)
     parser.add_argument('--test', action='store_true')
     args = parser.parse_args()
 
@@ -241,12 +312,12 @@ if __name__ == '__main__':
     checkpoint = None
     if not args.test:
         modeldir = 'SkipThoughts-{}'.format(args.mode)
-        checkpoint = Checkpoint(modeldir, keep=3).setup(args)
+        checkpoint = Checkpoint(modeldir, keep=5).setup(args)
 
     m = SkipThoughts(embeddings, args.mode, cell=args.cell, hid_dim=args.hid_dim,
                      num_layers=args.num_layers, summary=args.summary,
-                     dropout=args.dropout, max_norm=args.max_norm,
-                     optimizer=args.optimizer, lr=args.lr,
+                     softmax=args.softmax, dropout=args.dropout,
+                     max_norm=args.max_norm, optimizer=args.optimizer, lr=args.lr,
                      save_freq=args.save_freq, checkpoint=checkpoint)
 
     print(m)
@@ -267,15 +338,20 @@ if __name__ == '__main__':
     if args.gpu:
         m.cuda()
 
-    dataiter = DataIter(m.encoder.embeddings.d, *args.paths, includes=MODES[args.mode],
-                        min_len=args.min_len, max_len=args.max_len, gpu=args.gpu)
+    m.train()
+
+    paths = glob.glob(os.path.expanduser(args.paths))
+
+    dataiter = DataIter(m.encoder.embeddings.d, *paths, includes=MODES[args.mode],
+                        min_len=args.min_len, max_len=args.max_len, gpu=args.gpu,
+                        always_reverse=args.mode=='clone')
 
     print()
     print("Starting training ...\n")
     try:
         for epoch in range(1, args.epochs + 1):
             print("***{} Epoch #{} {}***".format("---" * 4, epoch, "---" * 4))
-            m.train(dataiter.batch_generator(args.batch_size, buffer_size=100000))
+            m.train_model(dataiter.batch_generator(args.batch_size, buffer_size=100000))
             print()
     except KeyboardInterrupt:
         print("Bye!")
