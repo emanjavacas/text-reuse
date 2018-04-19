@@ -17,8 +17,7 @@ from torch import optim
 from seqmod.modules.embedding import Embedding
 from seqmod.modules.rnn_encoder import RNNEncoder
 from seqmod.modules.softmax import FullSoftmax, SampledSoftmax
-from seqmod.modules.torch_utils import flip, shards
-from seqmod.misc import Checkpoint, text_processor
+from seqmod.misc import Checkpoint
 import seqmod.utils as u
 
 from text_reuse.skipthought.dataiter import DataIter
@@ -126,31 +125,31 @@ class Loss(nn.Module):
                 yield output, target, num_examples
 
     def loss(self, thought, hidden, sents, test=False):
-        loss, num_examples = 0, 0
+        loss, report_loss, num_examples = 0, 0, 0
 
         for out, trg, examples in self.forward(thought, hidden, sents):
+            out, trg = out.view(-1, self.hid_dim), trg.view(-1)
             dec_loss = 0
 
-            for shard in shards({'out': out, 'trg': trg}, test=test, size=20):
-                out, trg = shard['out'].view(-1, self.hid_dim), shard['trg'].view(-1)
-                if isinstance(self.logits, SampledSoftmax) and self.training:
-                    out, new_trg = self.logits(out, targets=trg, normalize=False)
-                    shard_loss = F.cross_entropy(out, new_trg, size_average=False)
-                else:
-                    shard_loss = F.cross_entropy(
-                        self.logits(out, normalize=False), trg, size_average=False,
-                        weight=self.nll_weight)
-                shard_loss /= examples
+            if isinstance(self.logits, SampledSoftmax) and self.training:
+                out, new_trg = self.logits(out, targets=trg, normalize=False)
+                dec_loss = F.cross_entropy(out, new_trg, size_average=False)
+            else:
+                dec_loss = F.cross_entropy(
+                    self.logits(out, normalize=False), trg, size_average=False,
+                    weight=self.nll_weight)
 
-                if not test:
-                    shard_loss.backward(retain_graph=True)
+            dec_loss /= examples
+            loss += dec_loss
 
-                dec_loss += shard_loss.data[0]
-
-            loss += math.exp(dec_loss)
+            # report
+            report_loss = math.exp(dec_loss.data[0])
             num_examples += examples
 
-        return loss, num_examples
+        if not test:
+            loss.backward()
+
+        return report_loss, num_examples
 
 
 class SkipThoughts(nn.Module):
@@ -294,7 +293,7 @@ if __name__ == '__main__':
                         default='/home/corpora/word_embeddings/' +
                         'glove.840B.300d.txt')
     # training
-    parser.add_argument('--dropout', type=float, default=0.15)
+    parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--optimizer', default='Adam')
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--lr_schedule_checkpoints', type=int, default=1)
@@ -302,6 +301,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_norm', type=float, default=5.)
     parser.add_argument('--epochs', type=int, default=2)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--buffer_size', type=int, default=int(5e+6))
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--save_freq', type=int, default=50000)
     parser.add_argument('--test', action='store_true')
@@ -351,7 +351,8 @@ if __name__ == '__main__':
     try:
         for epoch in range(1, args.epochs + 1):
             print("***{} Epoch #{} {}***".format("---" * 4, epoch, "---" * 4))
-            m.train_model(dataiter.batch_generator(args.batch_size, buffer_size=100000))
+            m.train_model(dataiter.batch_generator(args.batch_size,
+                                                   buffer_size=args.buffer_size))
             print()
     except KeyboardInterrupt:
         print("Bye!")
