@@ -42,6 +42,7 @@ def lines(*paths, min_len=1, max_len=-1, verbose=True):
                 if verbose:
                     print("[{}]: Read error at line {}".format(path, num))
                 yield None
+        yield None
 
 
 def window(it):
@@ -66,7 +67,7 @@ class DataIter(object):
     # - since sents are pooled (see `lines`), false pairs exist between files
     # - selecting both contexts results in less pairs
 
-    def __init__(self, d, *paths, gpu=False, includes=(True, True),
+    def __init__(self, d, *paths, gpu=False, includes=(True, True), verbose=True,
                  min_len=3, max_len=50, shuffle=True, always_reverse=False):
         self.d = d
         self.paths = list(paths)
@@ -76,6 +77,7 @@ class DataIter(object):
         self.max_len = max_len
         self.shuffle = shuffle
         self.always_reverse = always_reverse
+        self.verbose = verbose
 
     def wrap(self, data, reverse=False):
         data = list(self.d.transform(data))
@@ -107,24 +109,33 @@ class DataIter(object):
         return inp, sents
 
     def batches(self, buf, batch_size):
+        if self.verbose:
+            print("\nProcessing {} sentence pairs".format(len(buf)))
+
         def key(tup):  # sort by target lengths
             if self.prevline and self.nextline:
                 return len(tup[1][0])
             else:
                 return len(tup[1])
 
-        buf, batches = sorted(buf, key=key), []
+        if self.verbose:
+            print("Sorting buffer")
+        buf = sorted(buf, key=key)
 
-        while len(buf) >= batch_size:
-            batches.append(self.pack_batch(buf[:batch_size]))
-            buf = buf[batch_size:]
+        if self.verbose:
+            print("Splitting sorted batches")
+        batches = list(chunks(buf, batch_size))
 
         if self.shuffle:
+            if self.verbose:
+                print("Shuffling")
             random.shuffle(batches)
+        if self.verbose:
+            print("Done")
 
-        return batches, buf
+        return batches
 
-    def batch_generator(self, batch_size, buffer_size=10000):
+    def batch_generator(self, batch_size, buffer_size=100000):
         if batch_size > buffer_size:
             raise ValueError("`batch_size` can't be larger than"
                              " buffer capacity {}".format(buffer_size))
@@ -132,8 +143,8 @@ class DataIter(object):
         random.shuffle(self.paths)
 
         lines_it = lines(*self.paths, min_len=self.min_len, max_len=self.max_len)
-        buf = []
         for chunk in chunks(lines_it, buffer_size):
+            buf = []
             for (prevline, current, nextline) in window(chunk):
                 if current is not None:
                     if self.prevline and self.nextline:
@@ -143,15 +154,8 @@ class DataIter(object):
                         buf.append((current, prevline))
                     elif self.nextline and nextline is not None:
                         buf.append((current, nextline))
-            batches, buf = self.batches(buf, batch_size)
-            for batch in batches:
-                yield batch
-
-        batches, last = self.batches(buf, batch_size)
-        for batch in batches:
-            yield batch
-        if len(last) > 0:
-            yield self.pack_batch(last)
+            for batch in self.batches(buf, batch_size):
+                yield self.pack_batch(batch)
 
 
 if __name__ == '__main__':
