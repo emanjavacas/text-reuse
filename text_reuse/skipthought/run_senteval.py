@@ -6,6 +6,7 @@ import numpy as np
 import senteval
 import seqmod.utils as u
 from scipy.stats.stats import SpearmanrResult
+from scipy.linalg import norm
 from text_reuse.skipthought.model import SkipThoughts, Loss
 
 SENTEVAL_DATA = '/home/manjavacas/code/vendor/SentEval/data/senteval_data/'
@@ -72,7 +73,9 @@ if __name__ == '__main__':
             model.cuda()
 
     def batcher(params, batch):
-        return model.encode(batch)
+        encoding = model.encode(batch)
+        encoding = encoding / norm(encoding, axis=1)[:, None]
+        return encoding
 
     params = {
         'task_path': args.senteval_data,
