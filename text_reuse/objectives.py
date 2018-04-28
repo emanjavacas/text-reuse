@@ -137,11 +137,11 @@ class ContrastiveCosineObjective(BaseContrastiveObjective):
         # # Angular distance in range [0, 1]
         # import math
         # return torch.acos(F.cosine_similarity(enc1, enc2, dim=1)) / math.pi
-        # Cosine distance in [0, 2]
-        return 1 - F.cosine_similarity(enc1, enc2, dim=1)
+        # Cosine distance in [-1, 1]
+        return -F.cosine_similarity(enc1, enc2, dim=1)
 
     def predict(self, output):
-        return output < 1       # output is in (0, 2)
+        return output < 0       # output is in (0, 2)
 
 
 class ContrastiveEuclideanObjective(BaseContrastiveObjective):
