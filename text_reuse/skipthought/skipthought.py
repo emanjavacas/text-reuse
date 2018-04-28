@@ -1,6 +1,4 @@
 
-import os
-import glob
 import math
 import time
 import tqdm
@@ -14,13 +12,8 @@ from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch import optim
 
-from seqmod.modules.embedding import Embedding
 from seqmod.modules.rnn_encoder import RNNEncoder
 from seqmod.modules.softmax import FullSoftmax, SampledSoftmax
-from seqmod.misc import Checkpoint
-import seqmod.utils as u
-
-from text_reuse.skipthought.dataiter import DataIter
 
 
 def run_decoder(decoder, thought, hidden, inp, lengths):
@@ -51,20 +44,20 @@ def run_decoder(decoder, thought, hidden, inp, lengths):
     return output
 
 
-MODES = {
-    'next': (False, True),      # predict next sentence
-    'prev': (True, False),      # predict prev sentence
-    'double': (True, True),     # predict both previous and next (diff params)
-    'clone': (True, True),      # predict both previous and next (shared params)
-}
-
-
 class Loss(nn.Module):
 
-    def __init__(self, embeddings, cell, thought_dim, hid_dim,
-                 dropout=0.0, mode='clone', softmax='tied'):
+    MODES = {
+        'next': (False, True),      # predict next sentence
+        'prev': (True, False),      # predict prev sentence
+        'double': (True, True),     # predict both previous and next (diff params)
+        'clone': (True, True),      # predict both previous and next (shared params)
+        'self': True
+    }
 
-        if mode not in MODES:
+    def __init__(self, embeddings, cell, thought_dim, hid_dim,
+                 dropout=0.0, mode='double', softmax='tied'):
+
+        if mode not in Loss.MODES:
             raise ValueError("Unknown mode {}".format(mode))
 
         self.mode = mode
@@ -76,18 +69,23 @@ class Loss(nn.Module):
         inp_size = thought_dim + embeddings.embedding_dim
 
         # RNN
-        self.rnn_n, self.rnn_p = None, None
-        if self.mode == 'next':
-            self.rnn_n = getattr(nn, cell)(inp_size, hid_dim)
-        elif self.mode == 'prev':
-            self.rnn_p = getattr(nn, cell)(inp_size, hid_dim)
-        elif self.mode == 'double':
-            self.rnn_n = getattr(nn, cell)(inp_size, hid_dim)
-            self.rnn_p = getattr(nn, cell)(inp_size, hid_dim)
-        elif self.mode == 'clone':
-            self.rnn_n = getattr(nn, cell)(inp_size, hid_dim)
-            self.rnn_p = self.rnn_n
-        self._all_rnns = [self.rnn_p, self.rnn_n]
+        if self.mode == 'self':
+            self.rnn = getattr(nn, cell)(inp_size, hid_dim)
+            self._all_rnns = [self.rnn]
+
+        else:
+            self.rnn_n, self.rnn_p = None, None
+            if self.mode == 'next':
+                self.rnn_n = getattr(nn, cell)(inp_size, hid_dim)
+            elif self.mode == 'prev':
+                self.rnn_p = getattr(nn, cell)(inp_size, hid_dim)
+            elif self.mode == 'double':
+                self.rnn_n = getattr(nn, cell)(inp_size, hid_dim)
+                self.rnn_p = getattr(nn, cell)(inp_size, hid_dim)
+            elif self.mode == 'clone':
+                self.rnn_n = getattr(nn, cell)(inp_size, hid_dim)
+                self.rnn_p = self.rnn_n
+            self._all_rnns = [self.rnn_p, self.rnn_n]
 
         nll_weight = torch.ones(len(embeddings.d))
         if embeddings.d.get_pad() is not None:
@@ -209,6 +207,7 @@ class SkipThoughts(nn.Module):
             batches, postfix={'loss': 'unknown', 'words/sec': 'unknown'})
 
         for idx, ((inp, lengths), sents) in enumerate(log_batches):
+            self.train()
 
             # loss & update
             self.optimizer.zero_grad()
@@ -238,6 +237,10 @@ class SkipThoughts(nn.Module):
                      'words/sec': '{:.2f}'.format(speed)})
                 start, total_loss, total_examples, num_batches = restart, 0, 0, 0
 
+        # save end of epoch
+        self.eval()
+        self.checkpoint.save_nlast(self)
+
     def encode(self, sents, batch_size=100):
         """
         Encode a number of input sentences, where each sentence is a list of strings
@@ -266,95 +269,3 @@ class SkipThoughts(nn.Module):
             processed += num_examples
 
         return feats
-
-
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    # dataset
-    parser.add_argument('--paths', required=True)
-    parser.add_argument('--dict_path', required=True)
-    parser.add_argument('--min_len', type=int, default=2)
-    parser.add_argument('--max_len', type=int, default=35)
-    parser.add_argument('--lower', action='store_true')
-    parser.add_argument('--num', action='store_true')
-    parser.add_argument('--level', default='word')
-    # model
-    parser.add_argument('--mode', default='clone')
-    parser.add_argument('--softmax', default='single')
-    parser.add_argument('--emb_dim', type=int, default=620)
-    parser.add_argument('--hid_dim', type=int, default=2400)
-    parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--cell', default='GRU')
-    parser.add_argument('--summary', default='last')
-    parser.add_argument('--train_init', action='store_true')
-    parser.add_argument('--init_embeddings', action='store_true')
-    parser.add_argument('--embeddings_path',
-                        default='/home/corpora/word_embeddings/' +
-                        'glove.840B.300d.txt')
-    # training
-    parser.add_argument('--dropout', type=float, default=0.0)
-    parser.add_argument('--optimizer', default='Adam')
-    parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--lr_schedule_checkpoints', type=int, default=1)
-    parser.add_argument('--lr_schedule_factor', type=float, default=1)
-    parser.add_argument('--max_norm', type=float, default=5.)
-    parser.add_argument('--epochs', type=int, default=2)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--buffer_size', type=int, default=int(5e+6))
-    parser.add_argument('--gpu', action='store_true')
-    parser.add_argument('--save_freq', type=int, default=50000)
-    parser.add_argument('--test', action='store_true')
-    args = parser.parse_args()
-
-    embeddings = Embedding.from_dict(u.load_model(args.dict_path), args.emb_dim)
-
-    checkpoint = None
-    if not args.test:
-        modeldir = 'SkipThoughts-{}'.format(args.mode)
-        checkpoint = Checkpoint(modeldir, keep=5).setup(args)
-
-    m = SkipThoughts(embeddings, args.mode, cell=args.cell, hid_dim=args.hid_dim,
-                     num_layers=args.num_layers, summary=args.summary,
-                     softmax=args.softmax, dropout=args.dropout,
-                     max_norm=args.max_norm, optimizer=args.optimizer, lr=args.lr,
-                     save_freq=args.save_freq, checkpoint=checkpoint)
-
-    print(m)
-    print()
-    print("Parameter stats ...\n")
-    m.report_params()
-
-    print()
-    print("Initializing parameters ...\n")
-    u.initialize_model(
-        m,
-        rnn={'type': 'rnn_orthogonal', 'args': {'forget_bias': True}},
-        emb={'type': 'uniform', 'args': {'a': -0.1, 'b': 0.1}})
-
-    if args.init_embeddings:
-        embeddings.init_embeddings_from_file(args.embeddings_path, verbose=True)
-
-    if args.gpu:
-        m.cuda()
-
-    m.train()
-
-    paths = glob.glob(os.path.expanduser(args.paths))
-
-    dataiter = DataIter(m.encoder.embeddings.d, *paths, includes=MODES[args.mode],
-                        min_len=args.min_len, max_len=args.max_len, gpu=args.gpu,
-                        always_reverse=args.mode=='clone')
-
-    print()
-    print("Starting training ...\n")
-    try:
-        for epoch in range(1, args.epochs + 1):
-            print("***{} Epoch #{} {}***".format("---" * 4, epoch, "---" * 4))
-            m.train_model(dataiter.batch_generator(args.batch_size,
-                                                   buffer_size=args.buffer_size))
-            print()
-    except KeyboardInterrupt:
-        print("Bye!")
-    finally:
-        print("Finished!")

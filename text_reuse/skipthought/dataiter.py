@@ -93,6 +93,27 @@ class DataIter(object):
 
         return data, lengths
 
+    def batches(self, buf, batch_size):
+        if self.verbose:
+            print("\nProcessing {} sentence pairs".format(len(buf)))
+
+        if self.verbose:
+            print("Sorting buffer")
+        buf = self.sort_batch(buf)
+
+        if self.verbose:
+            print("Splitting sorted batches")
+        batches = list(chunks(buf, batch_size))
+
+        if self.shuffle:
+            if self.verbose:
+                print("Shuffling")
+            random.shuffle(batches)
+        if self.verbose:
+            print("Done")
+
+        return batches
+
     def pack_batch(self, batch):
         inp, sents = zip(*batch)
         inp = self.wrap(inp)
@@ -108,52 +129,79 @@ class DataIter(object):
 
         return inp, sents
 
-    def batches(self, buf, batch_size):
-        if self.verbose:
-            print("\nProcessing {} sentence pairs".format(len(buf)))
-
+    def sort_batch(self, buf):
         def key(tup):  # sort by target lengths
             if self.prevline and self.nextline:
                 return len(tup[1][0])
             else:
                 return len(tup[1])
 
-        if self.verbose:
-            print("Sorting buffer")
-        buf = sorted(buf, key=key)
+        return sorted(buf, key=key)
 
-        if self.verbose:
-            print("Splitting sorted batches")
-        batches = list(chunks(buf, batch_size))
-
-        if self.shuffle:
-            if self.verbose:
-                print("Shuffling")
-            random.shuffle(batches)
-        if self.verbose:
-            print("Done")
-
-        return batches
-
-    def batch_generator(self, batch_size, buffer_size=100000):
+    def batch_generator(self, batch_size, buffer_size=int(1e+6)):
         if batch_size > buffer_size:
             raise ValueError("`batch_size` can't be larger than"
                              " buffer capacity {}".format(buffer_size))
 
         random.shuffle(self.paths)
 
-        lines_it = lines(*self.paths, min_len=self.min_len, max_len=self.max_len)
-        for chunk in chunks(lines_it, buffer_size):
+        it = lines(*self.paths, min_len=self.min_len, max_len=self.max_len)
+        for chunk in chunks(it, buffer_size):
             buf = []
             for (prevline, current, nextline) in window(chunk):
-                if current is not None:
-                    if self.prevline and self.nextline:
-                        if prevline is not None and nextline is not None:
-                            buf.append((current, (prevline, nextline)))
-                    elif self.prevline and prevline is not None:
-                        buf.append((current, prevline))
-                    elif self.nextline and nextline is not None:
-                        buf.append((current, nextline))
+                if current is None:
+                    continue
+
+                if self.prevline and self.nextline:
+                    if prevline is not None and nextline is not None:
+                        buf.append((current, (prevline, nextline)))
+                elif self.prevline and prevline is not None:
+                    buf.append((current, prevline))
+                elif self.nextline and nextline is not None:
+                    buf.append((current, nextline))
+
+            for batch in self.batches(buf, batch_size):
+                yield self.pack_batch(batch)
+
+
+class SDAEDataIter(DataIter):
+    def __init__(self, d, *paths, gpu=False, verbose=True,
+                 min_len=3, max_len=50, shuffle=True):
+        self.d = d
+        self.paths = list(paths)
+        self.gpu = gpu
+        self.min_len = min_len
+        self.max_len = max_len
+        self.shuffle = shuffle
+        self.verbose = verbose
+
+    def pack_batch(self, batch):
+        inp, sents = zip(*batch)
+        inp, sents = self.wrap(inp), self.wrap(sents)
+
+        return inp, (sents, )
+
+    def sort_batch(self, buf):
+        return sorted(buf, key=lambda tup: return len(tup[1]))  # sort by targete
+
+    def apply_noise(self, sent):
+        pass
+
+    def batch_generator(self, batch_size, buffer_size=int(1e+6)):
+        if batch_size > buffer_size:
+            raise ValueError("`batch_size` can't be larger than"
+                             " buffer capacity {}".format(buffer_size))
+
+        random.shuffle(self.paths)
+
+        for chunk in lines(*self.paths, min_len=self.min_len, max_len=self.max_len):
+            buf = []
+            for sent in chunk:
+                if sent is None:
+                    continue
+
+                buf.append((self.apply_noise(sent), sent))
+
             for batch in self.batches(buf, batch_size):
                 yield self.pack_batch(batch)
 
