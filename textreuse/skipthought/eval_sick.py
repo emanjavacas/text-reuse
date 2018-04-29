@@ -6,24 +6,19 @@ import copy
 import numpy as np
 from sklearn.metrics import mean_squared_error
 from scipy.stats import pearsonr, spearmanr
-from scipy.linalg import norm
 import seqmod.utils as u
 from keras.models import Sequential
 from keras.layers import Activation, Dense
 
-from text_reuse.skipthought.model import SkipThoughts, Loss
-from text_reuse.datasets import encode_sick_label
+from textreuse.skipthought.model import SkipThoughts, Loss
+from textreuse.datasets import encode_sick_label
 
 
 def encode_dataset(model, A, B, labels, use_norm=False):
     """
     Encode pairs to output features
     """
-    enc1, enc2 = model.encode(A), model.encode(B)
-
-    if use_norm:
-        enc1 = enc1 / norm(enc1, axis=1)[:, None]
-        enc2 = enc2 / norm(enc2, axis=1)[:, None]
+    enc1, enc2 = model.encode(A, use_norm=use_norm), model.encode(B, use_norm=use_norm)
 
     feats = np.concatenate([np.abs(enc1 - enc2), enc1 * enc2], axis=1)
 
@@ -86,7 +81,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     import utils
-    from text_reuse.datasets import default_pairs, SICK_PATH
+    from textreuse.datasets import default_pairs, SICK_PATH
 
     model = u.load_model(args.model)
     model.eval()

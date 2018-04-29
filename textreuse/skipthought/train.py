@@ -6,9 +6,8 @@ from seqmod.modules.embedding import Embedding
 from seqmod.misc import Checkpoint
 import seqmod.utils as u
 
-from text_reuse.skipthought.dataiter import DataIter
-
-from .skipthought import SkipThoughts, Loss
+from textreuse.skipthought.dataiter import DataIter
+from textreuse.skipthought.model import SkipThoughts, Loss
 
 
 if __name__ == '__main__':

@@ -165,10 +165,15 @@ class DataIter(object):
 
 
 class SDAEDataIter(DataIter):
-    def __init__(self, d, *paths, gpu=False, verbose=True,
+    """
+    Iterator for the denoising autoencoder
+    """
+    def __init__(self, d, *paths, dropword=0.1, scramble=0.1, gpu=False, verbose=True,
                  min_len=3, max_len=50, shuffle=True):
         self.d = d
         self.paths = list(paths)
+        self.dropword = dropword
+        self.scramble = scramble
         self.gpu = gpu
         self.min_len = min_len
         self.max_len = max_len
@@ -185,7 +190,24 @@ class SDAEDataIter(DataIter):
         return sorted(buf, key=lambda tup: return len(tup[1]))  # sort by targete
 
     def apply_noise(self, sent):
-        pass
+        sent = list(sent)       # copy
+
+        # dropwords
+        i = -1
+        for _ in range(len(sent)):
+            i += 1
+            if random.random() < self.dropword:
+                sent.pop(i)
+                i -= 1
+
+        # scramble
+        for i in range(1, len(sent), 2):
+            if random.random() < self.scramble:
+                tmp = sent[i]
+                sent[i] = sent[i-1]
+                sent[i-1] = tmp
+
+        return sent
 
     def batch_generator(self, batch_size, buffer_size=int(1e+6)):
         if batch_size > buffer_size:

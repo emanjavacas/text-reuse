@@ -11,7 +11,7 @@ from seqmod.modules.rnn_encoder import RNNEncoder
 from seqmod.misc import Trainer, StdLogger, EarlyStopping, Checkpoint
 import seqmod.utils as u
 
-from text_reuse.siamese import Siamese, MeanMaxCNNEncoder
+from textreuse.siamese import Siamese, MeanMaxCNNEncoder
 
 
 def make_binary_validation_hook(patience, checkpoint=None):

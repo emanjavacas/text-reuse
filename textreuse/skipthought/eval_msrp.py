@@ -5,23 +5,17 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, accuracy_score, confusion_matrix
-from scipy.linalg import norm
 
 import seqmod.utils as u
 
-from text_reuse.skipthought.model import SkipThoughts, Loss
+from textreuse.skipthought.model import SkipThoughts, Loss
 
 
 def encode_dataset(model, A, B, labels, use_feats, use_norm=True):
     """
     Encode pairs to output features
     """
-    enc1, enc2 = model.encode(A), model.encode(B)
-
-    if use_norm:
-        enc1 = enc1 / norm(enc1, axis=1)[:, None]
-        enc2 = enc2 / norm(enc2, axis=1)[:, None]
-
+    enc1, enc2 = model.encode(A, use_norm=use_norm), model.encode(B, use_norm=use_norm)
     feats = np.concatenate([np.abs(enc1 - enc2), enc1 * enc2], axis=1)
 
     if use_feats:
@@ -127,7 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
-    from text_reuse.datasets import default_pairs, MSRP_PATH
+    from textreuse.datasets import default_pairs, MSRP_PATH
     import utils
 
     if not args.debug:

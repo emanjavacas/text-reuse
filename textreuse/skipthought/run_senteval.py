@@ -7,7 +7,7 @@ import senteval
 import seqmod.utils as u
 from scipy.stats.stats import SpearmanrResult
 from scipy.linalg import norm
-from text_reuse.skipthought.model import SkipThoughts, Loss
+from textreuse.skipthought.model import SkipThoughts, Loss
 
 SENTEVAL_DATA = '/home/manjavacas/code/vendor/SentEval/data/senteval_data/'
 
@@ -73,9 +73,7 @@ if __name__ == '__main__':
             model.cuda()
 
     def batcher(params, batch):
-        encoding = model.encode(batch)
-        encoding = encoding / norm(encoding, axis=1)[:, None]
-        return encoding
+        return model.encode(batch, use_norm=True)
 
     params = {
         'task_path': args.senteval_data,
@@ -92,12 +90,18 @@ if __name__ == '__main__':
     }
 
     tasks = [
-        'STSBenchmark',
+        'MR',
+        'CR',
+        'SUBJ',
+        'MPQA',
+        'SST',
+        'TREC',
         'MRPC',
         # 'SNLI',                 # super memory inefficient, leave out for now
-        'STS14',
+        # 'STS14',
         'SICKEntailment',
-        'SICKRelatedness'
+        'SICKRelatedness',
+        'STSB'
     ]
 
     dirname = os.path.dirname(args.model)

@@ -3,6 +3,7 @@ import math
 import time
 import tqdm
 
+from scipy.linalg import norm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -241,7 +242,7 @@ class SkipThoughts(nn.Module):
         self.eval()
         self.checkpoint.save_nlast(self)
 
-    def encode(self, sents, batch_size=100):
+    def encode(self, sents, use_norm=True, batch_size=100):
         """
         Encode a number of input sentences, where each sentence is a list of strings
         """
@@ -267,5 +268,8 @@ class SkipThoughts(nn.Module):
 
             sents = sents[num_examples:]
             processed += num_examples
+
+        if use_norm:
+            feats = feats / np.sqrt((feats**2).sum(1))[:,None]
 
         return feats

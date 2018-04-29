@@ -7,10 +7,10 @@ from seqmod.modules.cnn_encoder import CNNEncoder
 from seqmod.modules.cnn_text_encoder import CNNTextEncoder
 from seqmod.modules.ff import Highway
 
-from text_reuse.objectives import NormObjective, SigmoidObjective, CauchyObjective
-from text_reuse.objectives import MultinomialObjective
-from text_reuse.objectives import ContrastiveCosineObjective, ContrastiveEuclideanObjective
-from text_reuse.objectives import ContrastiveMahalanobisObjective
+from textreuse.objectives import NormObjective, SigmoidObjective, CauchyObjective
+from textreuse.objectives import MultinomialObjective
+from textreuse.objectives import ContrastiveCosineObjective, ContrastiveEuclideanObjective
+from textreuse.objectives import ContrastiveMahalanobisObjective
 
 
 class MeanMaxCNNEncoder(CNNEncoder):
