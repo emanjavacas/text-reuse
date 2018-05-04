@@ -121,6 +121,10 @@ if __name__ == '__main__':
     d, encoder = None, None
     if args.init_from_skipthoughts:
         encoder = u.load_model(args.init_from_skipthoughts).encoder
+    elif args.init_from_lm:
+        encoder = RNNEncoder.from_lm(
+            u.load_model(args.init_from_lm), summary=args.encoder_summary)
+    if encoder is not None:
         d = encoder.embeddings.d
         for p in encoder.parameters():
             p.requires_grad = False
@@ -130,10 +134,9 @@ if __name__ == '__main__':
     print(" * {} train batches".format(len(train)))
     print(" * {} valid batches".format(len(valid)))
     valid.set_batch_size(250)
+    train.sort_(key=lambda pair: len(pair[0]), sort_by='src')
     if binary:
-        train.sort_(key=lambda pair: len(pair[0]), sort_by='src').shuffle_().stratify_()
-    else:
-        train.sort_(key=lambda pair: len(pair[0]), sort_by='src')
+        train.shuffle_().stratify_()
 
     if encoder is None:
         # embeddings
@@ -141,14 +144,7 @@ if __name__ == '__main__':
         embs = Embedding.from_dict(
             d, args.emb_dim, add_positional='cnn' in args.model.lower())
 
-        # build network
-        if args.model.lower() == 'rnn' and args.init_from_lm:
-            encoder = RNNEncoder.from_lm(
-                u.load_model(args.init_from_lm), embeddings=embs,
-                summary=args.encoder_summary, dropout=args.dropout)
-            for p in encoder.parameters():
-                p.requires_grad = False
-        elif args.model.lower() == 'rnn':
+        if args.model.lower() == 'rnn':
             encoder = RNNEncoder(
                 embs, args.hid_dim, args.layers, args.cell, dropout=args.dropout,
                 summary=args.encoder_summary)
@@ -162,17 +158,12 @@ if __name__ == '__main__':
             encoder = MaxoutWindowEncoder(
                 embs, args.layers, maxouts=3, downproj=128, dropout=args.dropout)
 
-    m = Siamese(encoder, args.objective,
-                proj_layers=args.proj_layers, dropout=args.dropout,
-                nclass=5)
+    m = Siamese(encoder, args.objective, proj_layers=args.proj_layers,
+                dropout=args.dropout, nclass=5)
 
     # initialization
     if not (args.init_from_lm or args.init_from_skipthoughts):
-        u.initialize_model(
-            m,
-            # rnn={'type': 'orthogonal', 'args': {'gain': 1.0}},
-            # cnn={'type': 'normal', 'args': {'mean': 0, 'std': 0.1}}
-        )
+        u.initialize_model(m)
 
         if args.init_embeddings:
             embs.init_embeddings_from_file(args.embeddings_path, verbose=True)
@@ -191,7 +182,6 @@ if __name__ == '__main__':
 
     optimizer = getattr(optim, args.optim)(
         [p for p in m.parameters() if p.requires_grad], lr=args.lr, weight_decay=1e-6)
-    scheduler = None            # TODO!
     trainer = Trainer(
         m, {'train': train, 'valid': valid}, optimizer, max_norm=args.max_norm)
 

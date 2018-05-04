@@ -8,10 +8,56 @@ from collections import Counter
 from seqmod.misc import Dict, PairedDataset
 import seqmod.utils as u
 
-
 MSRP_PATH = '/home/manjavacas/corpora/MSRParaphraseCorpus/'
-QUORA_PATH = '/home/manjavacas/corpora/'
 SICK_PATH = '/home/manjavacas/corpora/SICK/'
+QUORA_PATH = '/home/manjavacas/corpora/'
+STSB_PATH = '/home/manjavacas/corpora/stsbenchmark/'
+OPUSPARCUS_PATH = '/home/manjavacas/corpora/opusparcus/'
+
+# paths to the already tokenized datasets
+MSRP_FORMATTER = os.path.join(MSRP_PATH, 'msr_paraphrase_{}_tokenized.txt').format
+SICK_FORMATTER = os.path.join(SICK_PATH, 'SICK_{}_tokenized.txt').format
+STSB_FORMATTER = os.path.join(STSB_PATH, 'sts-{}_tokenized.csv').format
+
+PATHS = {
+
+    'MSRP': {
+        'train': MSRP_FORMATTER('train'),
+        'test': MSRP_FORMATTER('test')
+    },
+
+    'SICK': {
+        'train': SICK_FORMATTER('train'),
+        'test': SICK_FORMATTER('test_annotated'),
+        'dev': SICK_FORMATTER('trial')
+    },
+
+    'STSB': {
+        'train': STSB_FORMATTER('train'),
+        'test': STSB_FORMATTER('test'),
+        'dev': STSB_FORMATTER('dev'),
+    }
+}
+
+
+def encode_label(label, nclass=5):
+    """
+    Encode score from 1 to nclass into a categorical cross-entropy format:
+
+    1:   [1.0, 0,   0, 0, ...]
+    1.5: [0.5, 0.5, 0, 0, ...]
+
+    Same format as in Socher's TreeLSTM paper, skipthoughts, etc...
+    """
+    label = float(label)
+    output = [0.0] * nclass
+    for i in range(nclass):
+        if i + 1 == math.floor(label) + 1:
+            output[i] = label - math.floor(label)
+        if i + 1 == math.floor(label):
+            output[i] = math.floor(label) - label + 1
+    return output
+
 
 
 def msrp_pairs(path):
@@ -41,34 +87,35 @@ def snli_entailment_pairs(path):
                 yield (s1.split(), s2.split()), '1'
 
 
-def encode_sick_label(label, nclass=5):
-    """
-    Encode score from 1 to nclass into a categorical cross-entropy format:
-    
-    1:   [1.0, 0,   0, 0, ...]
-    1.5: [0.5, 0.5, 0, 0, ...]
-
-    Same format as in Socher's TreeLSTM paper, skipthoughts, etc...
-    """
-    label = float(label)
-    if label < 1:
-        raise ValueError("Encoding should be in range [1, nclass]")
-
-    output = [0.0] * nclass
-    for i in range(nclass):
-        if i + 1 == (math.floor(label) + 1):
-            output[i] = label - math.floor(label)
-        if i + 1 == (math.floor(label)):
-            output[i] = math.floor(label) - label + 1
-    return output
-
-
 def sick_pairs(path):
     with open(path, 'r') as f:
         next(f)
         for line in f:
             line = line.strip().split('\t')
             yield (line[1].split(), line[2].split()), line[3]
+
+
+def stsb_pairs(path):
+    with open(path, 'r') as f:
+        for line in f:
+            _, _, _, _, label, s1, s2, *_ = line.strip().split('\t')
+            yield (s1.split(), s2.split()), label
+
+
+def opusparcus_pairs(path, split, lang='en', maxlines=10000):
+    total = 0
+
+    with open(os.path.join(path, lang, split, '{}-{}.txt'.format(lang, split))) as f:    
+        for line in f:
+            total += 1
+            if split in ('dev', 'test'):
+                _, s1, s2, score = line.strip().split('\t')
+                yield (s1.split(), s2.split()), score
+            else:
+                _, s1, s2, _, _, _, _ = line.strip().split('\t')
+                yield (s1.split(), s2.split()), None
+            if total >= maxlines:
+                raise StopIteration
 
 
 def default_pairs(path):
@@ -146,7 +193,7 @@ def load_sick(path=SICK_PATH, **kwargs):
     path = os.path.join(path, 'SICK_{}_tokenized.txt').format
     return load_dataset(
         default_pairs, path('train'), test=path('test_annotated'), valid=path('trial'),
-        preprocessing=encode_sick_label, use_vocab=False, dtype=float, **kwargs)
+        preprocessing=encode_label, use_vocab=False, dtype=float, **kwargs)
 
 
 if __name__ == '__main__':
@@ -164,7 +211,7 @@ if __name__ == '__main__':
         return ' '.join(list(map(str, tokenizer)))
 
     if args.corpus == 'quora':
-        path = '/home/manjavacas/corpora/quora_duplicate_questions{}.tsv'.format
+        path = os.path.join(QUORA_PATH, '/quora_duplicate_questions{}.tsv').format
         with open(path('_tokenized'), 'w+') as f:
             for (s1, s2), label in quora_pairs(path('')):
                 f.write('{}\t{}\t{}\n'.format(
@@ -173,9 +220,7 @@ if __name__ == '__main__':
                     label))
 
     elif args.corpus == 'msrp':
-        path = '/home/manjavacas/corpora/MSRParaphraseCorpus/'
-        path += 'msr_paraphrase_{}{}.txt'
-        path = path.format
+        path = os.path.join(MSRP_PATH, 'msr_paraphrase_{}{}.txt').format
         with open(path('train', '_tokenized'), 'w+') as f:
             for (s1, s2), label in msrp_pairs(path('train', '')):
                 f.write('{}\t{}\t{}\n'.format(
@@ -191,12 +236,21 @@ if __name__ == '__main__':
                     label))
 
     elif args.corpus == 'sick':
-        path = '/home/manjavacas/corpora/SICK/'
         for fname in ['SICK_test_annotated', 'SICK_train_full',
                       'SICK_train', 'SICK_trial', 'SICK']:
-            getpath = (os.path.join(path, fname) + '{}.txt').format
+            path = (os.path.join(SICK_PATH, fname) + '{}.txt').format
             with open(getpath('_tokenized'), 'w+') as f:
                 for (s1, s2), label in sick_pairs(getpath('')):
+                    f.write('{}\t{}\t{}\n'.format(
+                        tokenize(' '.join(s1)),
+                        tokenize(' '.join(s2)),
+                        label))
+
+    elif args.corpus == 'stsb':
+        for split in ['train', 'dev', 'test']:
+            getpath = (os.path.join(STSB_PATH, 'sts-{}{}.csv')).format
+            with open(getpath(split, '_tokenized'), 'w+') as f:
+                for (s1, s2), label in stsb_pairs(getpath(split, '')):
                     f.write('{}\t{}\t{}\n'.format(
                         tokenize(' '.join(s1)),
                         tokenize(' '.join(s2)),

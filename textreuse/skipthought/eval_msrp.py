@@ -27,16 +27,6 @@ def encode_dataset(model, A, B, labels, use_feats, use_norm=True):
     return feats, np.array(labels, dtype=np.float)
 
 
-def encode_dataset_debug(path, A, B, labels, use_feats):
-    """
-    Just for debugging, it loads preprocessed data by original implementation
-    """
-    feats = np.load(path)
-    if use_feats:
-        feats = np.concatenate([feats, count_feats(A, B)], axis=1)
-    return feats, np.array(labels, dtype=np.float)
-
-
 def count_feats(A, B):
     """
     Compute easy set overlap features.
@@ -104,7 +94,11 @@ def evaluate(train_X, train_y, test_X, test_y, use_kfold=False, k=10):
     print("Confusion matrix:\n{}".format(str(confusion_matrix(test_y, preds))))
     print("Best C: {}".format(C))
 
-    return f1_score(test_y, preds), accuracy_score(test_y, preds), C
+    f1, acc = f1_score(test_y, preds), accuracy_score(test_y, preds)
+    print("F1-score: {:g}".format(p))
+    print("Accuracy: {:g}".format(mse))
+
+    return f1, acc, C
     
 
 if __name__ == '__main__':
@@ -121,60 +115,39 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
-    from textreuse.datasets import default_pairs, MSRP_PATH
+    from textreuse.datasets import default_pairs, PATHS
     import utils
 
-    if not args.debug:
-        model = u.load_model(args.model)
-        model.eval()
+    model = u.load_model(args.model)
+    model.eval()
 
-        # expand
-        path = (MSRP_PATH + '/msr_paraphrase_{}_tokenized.txt').format
-        targets = utils.get_targets(
-            model.encoder.embeddings.d.vocab,
-            default_pairs(path('train')), default_pairs(path('test')))
-        model.encoder.embeddings.expand_space(
-            args.embeddings,
-            targets=targets, words=targets + model.encoder.embeddings.d.vocab)
+    # expand
+    targets = utils.get_targets(
+        model.encoder.embeddings.d.vocab,
+        default_pairs(PATHS['MSRP']['train']), default_pairs(PATHS['test']))
+    model.encoder.embeddings.expand_space(
+        args.embeddings,
+        targets=targets, words=targets + model.encoder.embeddings.d.vocab)
 
-        if args.gpu:
-            model.cuda()
+    if args.gpu:
+        model.cuda()
 
-        # train
-        train_path = MSRP_PATH + 'msr_paraphrase_train_tokenized.txt'
-        X, y = zip(*list(default_pairs(train_path)))
-        (A, B) = zip(*X)
-        train_X, train_y = encode_dataset(
-            model, A, B, y, use_feats=args.use_feats, use_norm=args.use_norm)
+    # train
+    X, y = zip(*list(default_pairs(PATHS['MSRP']['train'])))
+    (A, B) = zip(*X)
+    train_X, train_y = encode_dataset(
+        model, A, B, y, use_feats=args.use_feats, use_norm=args.use_norm)
 
-        # test
-        test_path = MSRP_PATH + 'msr_paraphrase_test_tokenized.txt'
-        X, y = zip(*list(default_pairs(test_path)))
-        (A, B) = zip(*X)
-        test_X, test_y = encode_dataset(
-            model, A, B, y, use_feats=args.use_feats, use_norm=args.use_norm)
+    # test
+    X, y = zip(*list(default_pairs(PATHS['MSRP']['test'])))
+    (A, B) = zip(*X)
+    test_X, test_y = encode_dataset(
+        model, A, B, y, use_feats=args.use_feats, use_norm=args.use_norm)
 
-        f1, acc, C = evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
-        with open(os.path.join(os.path.dirname(args.model), 'msrp.csv'), 'a') as f:
-            formatter = "\nModel: {}\tF1: {:g}\tAcc: {:g}\tC: {:g}\tfeats: {}" + \
-                        "\tNorm: {}\tEmbs: {}"
-            f.write(formatter.format(os.path.basename(args.model), f1, acc, C,
-                                     str(args.use_feats), str(args.use_norm),
-                                     os.path.basename(args.embeddings)))
-
-    else:
-        # train
-        train_path = MSRP_PATH + 'msr_paraphrase_train_tokenized.txt'
-        X, y = zip(*list(default_pairs(train_path)))
-        (A, B) = zip(*X)
-        train_X, train_y = encode_dataset_debug(
-            '/home/manjavacas/train_msrp.npy', A, B, y, use_feats=args.use_feats)
-    
-        # test
-        test_path = MSRP_PATH + 'msr_paraphrase_test_tokenized.txt'
-        X, y = zip(*list(default_pairs(test_path)))
-        (A, B) = zip(*X)
-        test_X, test_y = encode_dataset_debug(
-            '/home/manjavacas/test_msrp.npy', A, B, y, use_feats=args.use_feats)
-        f1, acc, C = evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
-        print("F1: {:g}\tAcc: {:g}\tC: {:g}".format(f1, acc, C))
+    f1, acc, C = evaluate(train_X, train_y, test_X, test_y, use_kfold=args.use_kfold)
+    with open(os.path.join(os.path.dirname(args.model), 'msrp.csv'), 'a') as f:
+        formatter = "\nModel: {}\tF1: {:g}\tAcc: {:g}\tC: {:g}\tfeats: {}" + \
+                    "\tNorm: {}\tEmbs: {}"
+        f.write(formatter.format(os.path.basename(args.model), f1, acc, C,
+                                 str(args.use_feats), str(args.use_norm),
+                                 os.path.basename(args.embeddings)))

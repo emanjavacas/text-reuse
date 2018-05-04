@@ -95,7 +95,8 @@ class CauchyObjective(nn.Module):
 
 class BaseContrastiveObjective(nn.Module):
     def __init__(self, weight=0.5, margin=2):
-        self.weight, self.margin = weight, margin
+        self.weight = weight
+        self.margin = margin
         super(BaseContrastiveObjective, self).__init__()
 
     def loss(self, dists, y):

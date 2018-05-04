@@ -54,7 +54,7 @@ if __name__ == '__main__':
     parser.add_argument('--embeddings',
                         default='/home/corpora/word_embeddings/fasttext.wiki.en.bin')
     parser.add_argument('--gpu', action='store_true')
-    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--test', action='store_true')
     args = parser.parse_args()
 
     model = None
@@ -82,38 +82,38 @@ if __name__ == '__main__':
         'batch_size': args.batch_size,
         'classifier': {
             'nhid': 0,
-            'optim': 'adam',
-            'batch_size': 64,
-            'tenacity': 5,
-            'epoch_size': 4
+            'optim': 'adam,lr=0.001',
+            'batch_size': 50,
+            'tenacity': 1,
+            'epoch_size': 1
         }
     }
 
     tasks = [
-        'MR',
-        'CR',
-        'SUBJ',
-        'MPQA',
-        'SST',
-        'TREC',
-        'MRPC',
-        # 'SNLI',                 # super memory inefficient, leave out for now
-        # 'STS14',
-        'SICKEntailment',
+        # 'TREC',
+        # 'MRPC',
+        # 'SICKEntailment',
         'SICKRelatedness',
-        'STSB'
+        'STSBenchmark',
+        # 'MR',
+        # 'CR',
+        # 'SUBJ',
+        # 'MPQA',
+        # # 'SNLI',                 # super memory inefficient, leave out for now
+        # 'STS14',
     ]
 
     dirname = os.path.dirname(args.model)
     basename = '.'.join(os.path.basename(args.model).split('.')[:-1]) + ".results.yml"
     fname = os.path.join(dirname, basename)
 
-    if os.path.exists(fname):
+    if not args.test and os.path.exists(fname):
         print("Eval file already exists")
         import sys
         sys.exit(0)
 
     results = senteval.engine.SE(params, batcher, prepare).eval(tasks)
-    
-    with open(fname, 'w') as f:
-        yaml.dump(denumpify(results), stream=f, default_flow_style=False)
+
+    if not args.test:
+        with open(fname, 'w') as f:
+            yaml.dump(denumpify(results), stream=f, default_flow_style=False)

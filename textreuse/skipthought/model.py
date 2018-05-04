@@ -270,6 +270,6 @@ class SkipThoughts(nn.Module):
             processed += num_examples
 
         if use_norm:
-            feats = feats / np.sqrt((feats**2).sum(1))[:,None]
+            feats = feats / np.sqrt((feats**2).sum(1))[:, None]
 
         return feats
