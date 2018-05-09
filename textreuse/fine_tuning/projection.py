@@ -120,10 +120,19 @@ class Model(nn.Module):
 
         return best_corr, best_W.numpy()
 
+
 if __name__ == '__main__':
-    joined = True
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--joined', action='store_true')
+    parser.add_argument('--save', action='store_true')
+    parser.add_argument('--outputname', default='projection')
+    args = parser.parse_args()
+
+
     train, dev = load_dataset('stsb', 'train'), load_dataset('stsb', 'dev')
-    if joined:                      # concatenate both datasets
+    if args.joined:             # concatenate both datasets
        sick = load_dataset('sick', 'train')
        train['s1'] = np.concatenate([train['s1'], sick['s1']])
        train['s2'] = np.concatenate([train['s2'], sick['s2']])
@@ -136,6 +145,8 @@ if __name__ == '__main__':
     m.cuda()
     
     best_corr, best_W = m.train_model(train, dev, 1000, cuda=True)
+    if args.save:
+        np.save('{}-{:g}.npy'.format(args.outputname, best_corr), best_W)
     
     for dataset in ('stsb', 'sick'):
         for split in ('test', 'dev'):
