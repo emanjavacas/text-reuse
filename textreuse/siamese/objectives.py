@@ -121,14 +121,11 @@ class ContrastiveCosineObjective(BaseContrastiveObjective):
     It diverges from original "contrastive loss" definition by Chopra et al 2005,
     based on euclidean distance instead of cosine (which makes sense for text).
 
-    L_+(x_1, x_2, y) = 1/4 * (1 - cosine_similarity(x_1, x_2)) ^ 2
+    L_+(x_1, x_2, y) = weight * (1 - cosine_similarity(x_1, x_2)) ^ 2
     L_-(x_1, x_2, y) = max(0, cosine_similarity(x_1, x_2) - margin) ^ 2
 
-    where 1/4 is the weight which should be tune with respect to the proportion
+    where the weight which should be tuned with respect to the proportion
     of positive versus negative examples.
-
-    Note that 1 - cosine_similarity represents the cosine distance in range [0, 2].
-    A different approach would be to 
     """
     def __init__(self, weight=0.5, margin=2):
         super(ContrastiveCosineObjective, self).__init__(
@@ -138,11 +135,11 @@ class ContrastiveCosineObjective(BaseContrastiveObjective):
         # # Angular distance in range [0, 1]
         # import math
         # return torch.acos(F.cosine_similarity(enc1, enc2, dim=1)) / math.pi
-        # Cosine distance in [-1, 1]
         return -F.cosine_similarity(enc1, enc2, dim=1)
 
     def predict(self, output):
-        return output < 0       # output is in (0, 2)
+        # output is in (-1, 1)
+        return output < 0
 
 
 class ContrastiveEuclideanObjective(BaseContrastiveObjective):
@@ -184,4 +181,3 @@ class ContrastiveMahalanobisObjective(BaseContrastiveObjective):
         output = M.bmm(dists.unsqueeze(2))  # (batch x encoding_size x 1)
         # dot product with feature-wise distances
         return (output.squeeze(2) * dists).sum(1)  # (batch)
-
