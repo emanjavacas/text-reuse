@@ -187,7 +187,7 @@ class SDAEDataIter(DataIter):
         return inp, (sents, )
 
     def sort_batch(self, buf):
-        return sorted(buf, key=lambda tup: return len(tup[1]))  # sort by targete
+        return sorted(buf, key=lambda tup: len(tup[1]))  # sort by targete
 
     def apply_noise(self, sent):
         sent = list(sent)       # copy
@@ -255,7 +255,7 @@ if __name__ == '__main__':
 
         def create_sample_files(files=10):
             import lorem
-            
+
             for i in range(files):
                 with open('lorem{}.txt'.format(i+1), 'w+') as f:
                     for _ in range(random.randint(500, 1500)):
@@ -272,7 +272,7 @@ if __name__ == '__main__':
                 eos_token=seqmod.utils.EOS
             ).fit(lines(*args.files, min_len=min_len, max_len=max_len))
         dataiter = DataIter(D, *args.files, max_len=max_len, min_len=min_len)
-    
+
         import time
         # start buffer
         batches = dataiter.batch_generator(
@@ -289,4 +289,3 @@ if __name__ == '__main__':
         from statistics import mean
         print("Sents: {}; speed: {:.3f} msec/batch; buffer: {}".format(
             sents, mean(speed) * 1000, args.buffer_size))
-

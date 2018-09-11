@@ -3,7 +3,6 @@ import math
 import time
 import tqdm
 
-from scipy.linalg import norm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -28,9 +27,9 @@ def run_decoder(decoder, thought, hidden, inp, lengths):
     lengths, sort = torch.sort(lengths, descending=True)
     _, unsort = sort.sort()
     if isinstance(hidden, tuple):
-        hidden = hidden[0][:,sort,:], hidden[1][:,sort,:]
+        hidden = hidden[0][:, sort, :], hidden[1][:, sort, :]
     else:
-        hidden = hidden[:,sort,:]
+        hidden = hidden[:, sort, :]
 
     # pack
     inp = pack(inp[:, sort], lengths.tolist())
@@ -112,7 +111,7 @@ class Loss(nn.Module):
             if sent is not None:
                 if rnn is None:
                     raise ValueError("Unexpected input at pos {}".format(idx + 1))
-    
+
                 (sent, lengths) = sent
                 # rearrange targets for loss
                 inp, target, lengths = sent[:-1], sent[1:], lengths - 1
@@ -120,7 +119,7 @@ class Loss(nn.Module):
                 # run decoder
                 inp = self.embeddings(inp)
                 output = run_decoder(rnn, thought, hidden, inp, lengths)
-    
+
                 yield output, target, num_examples
 
     def loss(self, thought, hidden, sents, test=False):
@@ -264,7 +263,7 @@ class SkipThoughts(nn.Module):
             output = output.data.cpu().numpy()
 
             for idx, f in enumerate(output):
-                feats[processed + idx,:] = f
+                feats[processed + idx, :] = f
 
             sents = sents[num_examples:]
             processed += num_examples
