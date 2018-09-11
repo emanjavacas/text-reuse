@@ -6,7 +6,8 @@ import warnings
 from lxml import etree
 
 
-NSMAP = {'tei': 'http://www.tei-c.org/ns/1.0'}
+NSMAP = {'tei': 'http://www.tei-c.org/ns/1.0',
+         'w3': 'http://www.w3.org/XML/1998/namespace'}
 NSREG = r'{[^}]+}'
 
 
@@ -15,8 +16,8 @@ def remove_ns(tag):
     return re.sub(NSREG, '', tag)
 
 
-def add_ns(tag):
-    return '{{{}}}{}'.format(NSMAP['tei'], tag)
+def add_ns(tag, ns='tei'):
+    return '{{{}}}{}'.format(NSMAP[ns], tag)
 
 
 def parse_file(fname):
@@ -30,9 +31,12 @@ def parse_file(fname):
 
 def parse_dir(dirname='./biblindex/SCT1-5/'):
     for f in os.listdir(dirname):
+        if not f.endswith('xml'):
+            warnings.warn("Ignoring file: {}".format(f))
+            continue
         try:
-            yield os.path.join(dirname, f), parse_file(os.path.join(dirname, f))
-        except:
+            yield str(f), parse_file(os.path.join(dirname, f))
+        except Exception:
             warnings.warn("Couldn't parse [{}]".format(f))
 
 
@@ -56,8 +60,40 @@ def get_p(tree):
         yield p
 
 
+def get_context(elem, window=20):
+    prev_text, post_text = [], []
+    prev, post = elem.getprevious(), elem.getnext()
+
+    while len(prev_text) < window:
+        if prev is None:
+            break
+        else:
+            if remove_ns(prev.tag) == 'w':
+                prev_text.append(
+                    {'POS': prev.attrib['ana'], 'lemma': prev.attrib['lemma'],
+                     'word': prev.text})
+            elif remove_ns(prev.tag) == 'pc':
+                prev_text.append({'POS': 'PC', 'lemma': prev.text, 'word': prev.text})
+            prev = prev.getprevious()
+
+    while len(post_text) < window:
+        if post is None:
+            break
+        else:
+            if remove_ns(post.tag) == 'w':
+                post_text.append(
+                    {'POS': post.attrib['ana'], 'lemma': post.attrib['lemma'],
+                     'word': post.text})
+            elif remove_ns(post.tag) == 'pc':
+                post_text.append({'POS': 'PC', 'lemma': post.text, 'word': post.text})
+            post = post.getnext()
+
+    return prev_text[::-1], post_text
+
+
 def get_seg_notes(tree):
     pair, prev = [], None
+    # txt_Normal: actual text
     elems = tree.xpath('//tei:p[@style="txt_Normal"]/*', namespaces=NSMAP)
     for idx, e in enumerate(elems):
         if remove_ns(e.tag) == 'seg':

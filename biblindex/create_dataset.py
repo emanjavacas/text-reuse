@@ -1,7 +1,7 @@
 
 import json
 
-from parse import get_seg_notes, get_ptr, get_link, get_link_type, get_text, parse_dir
+import parse
 
 
 def load_scraped_refs(fname='scraped.json'):
@@ -20,18 +20,20 @@ def load_scraped_refs(fname='scraped.json'):
 
 def load_texts(refs, missing, **kwargs):
     missed = 0
-    for fname, tree in parse_dir(**kwargs):
-        for seg, note in get_seg_notes(tree):
+    for fname, tree in parse.parse_dir(**kwargs):
+        for seg, note in parse.get_seg_notes(tree):
             try:
-                url, lang = get_ptr(note)
+                url, lang = parse.get_ptr(note)   # throws ValueError if not correct seg
+                prev, post = parse.get_context(seg)
                 in_missing = url in missing  # flag to check if missing
-                link_type = get_link_type(get_link(note))
-                text = ' '.join(w['word'] for w in get_text(seg))
-                yield {'url': url,
-                       'ref': refs[url]['target'],
+                yield {'id': note.attrib[parse.add_ns('id', ns='w3')],
+                       'url': url,
                        'lang': lang,
-                       'type': link_type,
-                       'text': text,
+                       'ref': refs[url]['target'],
+                       'type': parse.get_link_type(parse.get_link(note)),
+                       'text': ' '.join(w['word'] for w in parse.get_text(seg)),
+                       'textdata': list(parse.get_text(seg)),
+                       'textcontext': {'prev': prev, 'next': post},
                        'sourceXml': fname}
                 in_missing = False
             except ValueError:
@@ -46,6 +48,6 @@ def load_texts(refs, missing, **kwargs):
 if __name__ == '__main__':
     refs, missing = load_scraped_refs()
 
-    with open('SCT1-5.json', 'a+') as f:
+    with open('SCT1-5.json', 'w') as f:
         for text in load_texts(refs, missing, dirname='../biblindex/SCT1-5'):
             f.write("{}\n".format(json.dumps(text)))
