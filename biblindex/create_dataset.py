@@ -24,7 +24,7 @@ def load_texts(refs, missing, **kwargs):
         for seg, note in parse.get_seg_notes(tree):
             try:
                 url, lang = parse.get_ptr(note)   # throws ValueError if not correct seg
-                prev, post = parse.get_context(seg)
+                prev, post = parse.get_context(seg, window=50)
                 in_missing = url in missing  # flag to check if missing
                 yield {'id': note.attrib[parse.add_ns('id', ns='w3')],
                        'url': url,

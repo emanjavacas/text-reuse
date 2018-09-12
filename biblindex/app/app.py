@@ -2,7 +2,7 @@
 import os
 
 import bottle
-from routes import build_website
+import routes
 
 
 if __name__ == '__main__':
@@ -15,7 +15,7 @@ if __name__ == '__main__':
     PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
     STATIC_ROOT = os.path.join(PROJECT_ROOT, 'static').replace('\\', '/')
 
-    app = build_website(PROJECT_ROOT)
+    app = routes.build_website(PROJECT_ROOT)
 
     @app.route('/static/<filepath:path>')
     def server_static(filepath):

@@ -18,18 +18,25 @@
 	  <a class="navbar-brand mb-0 h1 text-center" href="/">Text Reuse Annotation Tool</a>
 	</li>
 	<li class="nav-item text-center">
+	  %if active:
           <a class="nav-link" href="/annotate">Annotate</a>
+	  %else:
+	  <a class="nav-link disabled" onclick="return false;">Annotate</a>
+	  %end
 	</li>
 	<li class="nav-item text-center">
+	  %if active:
           <a class="nav-link" href="/review">Review</a>
+	  %else:
+	  <a class="nav-link disabled" onclick="return false;">Review</a>
+	  %end
 	</li>
       </ul>
     </nav>
 
     <div class="container">
       {{!base}}
-      <hr />
-      <footer class="footer fixed-bottom container text-right">
+      <footer class="navbar navbar-default navbar-fixed-bottom">
         <p class="muted">&copy; {{ year }} - Text Reuse Span Annotation Tool</p>
       </footer>
     </div>

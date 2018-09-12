@@ -11,8 +11,6 @@ from tinydb import TinyDB, Query
 from bottle import Bottle, view, request
 
 
-# load resources
-# - DB
 db = TinyDB('./db.json')
 
 
@@ -31,7 +29,8 @@ def retrieve_done(only_ids=True):
     if not path:
         return []
 
-    done = db.search(Query().source == path)
+    query = Query()
+    done = db.search((query.path == path) & (query.type == 'annotation'))
 
     if only_ids:
         return set([doc['id'] for doc in done])
@@ -56,9 +55,17 @@ def get_annotation_stats(data):
 
     for sourceXml, items in data.items():
         annotated = db.search(Query().sourceXml == sourceXml)
-        stats.append((sourceXml, len(items), len(annotated), len(annotated)//len(items)))
+        percentage = round(100 * (len(annotated) / len(items)), 0)
+        stats.append((sourceXml, len(items), len(annotated), percentage))
 
     return stats
+
+
+def get_payload(active=True, **kwargs):
+    return {
+        "active": active,
+        "year": datetime.now().year,
+        **kwargs}
 
 
 def build_website(root):
@@ -73,15 +80,12 @@ def build_website(root):
         path = retrieve_path()
 
         if not path or os.path.basename(path) not in opts:
-            return dict(year=datetime.now().year,
-                        root=root, opts=opts, path=None, stats=None)
+            return get_payload(active=False, root=root, opts=opts, path=None, stats=None)
         try:
             stats = get_annotation_stats(get_annotation_data(path))
-            return dict(year=datetime.now().year,
-                        root=root, opts=opts, path=path, stats=stats)
+            return get_payload(root=root, opts=opts, path=path, stats=stats)
         except Exception:
-            return dict(year=datetime.now().year,
-                        root=root, opts=opts, path=path, stats=None)
+            return get_payload(active=False, root=root, opts=opts, path=path, stats=None)
 
     @app.route('/register', method='post')
     def register():
@@ -113,12 +117,23 @@ def build_website(root):
                             if item['id'] not in done]
                     total = len(done) + len(data)
 
-        return dict(year=datetime.now().year, path=path, data=data, total=total)
+        return get_payload(path=path, data=data, total=total)
+
+    @app.route('/saveAnnotation', method='post')
+    def saveAnnotation():
+        db.insert({'id': request.params['id'],
+                   'sourceXml': request.params['sourceXml'],
+                   'selection': request.params['selection'],
+                   'type': 'annotation',
+                   'timestamp': datetime.now().timestamp,
+                   'path': retrieve_path(),
+                   'root': root})
+        return 'OK'
 
     @app.route('/review')
     @view('annotate')
     def review():
         """Review page."""
-        return dict(year=datetime.now().year)
+        return get_payload()
 
     return app

@@ -40,11 +40,11 @@
 
   <div class="card">
     <div class="card-body">
-      <blockquote class="blockquote mb-0" id="bernard">
+      <blockquote class="blockquote mb-0">
+        <p id="bernard"></p>
       </blockquote>
     </div>
   </div>
-
 
 <div id="restartModal" class="modal" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document">

@@ -23,14 +23,19 @@ function elementContainsSelection(el) {
 
 function getTextOfSelection(id) {
   if (elementContainsSelection(document.getElementById('bernard'))) {
-    var endText = window.getSelection().getRangeAt(0).endContainer.wholeText;
-    var nextText = $('#next').text();
-    if (nextText.indexOf(endText) !== -1) {
-      return window.getSelection().toString().replace(/(?:\r\n|\r|\n)+/g, ' ');
+    var sel = window.getSelection();
+    var selOut = sel.toString().replace(/(?:\r\n|\r|\n)+/g, ' ');
+    if ($('#next').text().indexOf(sel.getRangeAt(0).endContainer.wholeText) !== -1) {
+      return selOut;
+    } else {
+      var selWords = sel.toString().trim().split(/\s+/);
+      if ($('#target').text().indexOf(selWords[selWords.length-1]) !== -1) {
+	return selOut;
+      }
     }
   }
   return "";
-}
+};
 
 function expandSelection(range) {
   if (range.collapsed) {
@@ -49,7 +54,9 @@ function expandSelection(range) {
 }
 
 function buildTextMeta(meta, text, id) {
-  var p = text ? "<p class='text-center'><strong id='target'>" : "<p id='" + id + "'>";
+  var p = text ?
+      "<span class='text-center'><strong id='" + id + "'>" :
+      "<span id='" + id + "'>";
 
   /** add text */
   for (var i=0; i<meta.length; i++) {
@@ -60,7 +67,7 @@ function buildTextMeta(meta, text, id) {
   if (text) {
     p = p + "</strong>";
   }
-  p = p + "</p>";
+  p = p + "</span>";
 
   return p;
 }
@@ -75,7 +82,7 @@ function renderItem(idx) {
   var $bernard = $('#bernard');
   $bernard.empty();
   $bernard.append(buildTextMeta(data[idx]["textcontext"]["prev"], false, "prev"));
-  $bernard.append(buildTextMeta(data[idx]["textdata"], true, "focus"));
+  $bernard.append(buildTextMeta(data[idx]["textdata"], true, "target"));
   $bernard.append(buildTextMeta(data[idx]["textcontext"]["next"], false, "next"));  
 }
 
@@ -97,10 +104,25 @@ $( document ).ready(function() {
     var selection = getTextOfSelection('bernard');
 
     if (selection === "") {
+      /** warn on empty selection */
       $('#selectionWarning').modal();
       return;
     } else {
-      console.log("Saving: " + selection);
+      /** send data to server */
+      $.post(
+	'saveAnnotation',
+	{id: data[current]['id'],
+	 sourceXml: data[current]['sourceXml'],
+	 selection: selection}
+      ).done(
+	function() {
+	  console.log("Correctly saved");
+	}
+      ).fail(
+	function() {
+	  console.log("Ooppsie while saving");
+	}
+      );
     }
 
     /** move to next */
