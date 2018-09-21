@@ -6,6 +6,7 @@ import os
 import collections
 import json
 from datetime import datetime
+import random
 
 from tinydb import TinyDB, Query
 from bottle import Bottle, view, request
@@ -38,7 +39,7 @@ def retrieve_done(only_ids=True):
     return done
 
 
-def get_annotation_data(path):
+def get_annotation_data(path, nested=True):
     output = collections.defaultdict(list)
 
     with open(path) as f:
@@ -46,6 +47,9 @@ def get_annotation_data(path):
             obj = json.loads(line.strip())
             if obj['type'] == 'inexactQuotation-allusion':
                 output[obj['sourceXml']].append(obj)
+
+    if not nested:
+        output = [item for coll in output.values() for item in coll]
 
     return output
 
@@ -107,33 +111,49 @@ def build_website(root):
 
         if path:
             try:
-                data = get_annotation_data(path)
+                data = get_annotation_data(path, nested=False)
             except Exception:
                 pass
             finally:
                 if data is not None:
                     done = retrieve_done()
-                    data = [item for coll in data.values() for item in coll
-                            if item['id'] not in done]
+                    data = [item for item in data if item['id'] not in done]
+                    random.shuffle(data)
                     total = len(done) + len(data)
 
         return get_payload(path=path, data=data, total=total)
 
     @app.route('/saveAnnotation', method='post')
     def saveAnnotation():
-        db.insert({'id': request.params['id'],
-                   'sourceXml': request.params['sourceXml'],
-                   'selection': request.params['selection'],
-                   'type': 'annotation',
-                   'timestamp': datetime.now().timestamp,
-                   'path': retrieve_path(),
-                   'root': root})
+        ann = dict(request.params)
+        ann['timestamp'] = datetime.now().timestamp
+        ann['path'] = retrieve_path()
+        ann['root'] = root
+        ann['type'] = 'annotation'
+        ann['prevSpan'] = int(ann['prevSpan'])
+        ann['nextSpan'] = int(ann['nextSpan'])
+        query = Query()
+        db.upsert(ann, (query.id == ann['id']) & (query.path == ann['path']))
         return 'OK'
 
     @app.route('/review')
     @view('annotate')
     def review():
         """Review page."""
-        return get_payload()
+        path, data, total = retrieve_path(), None, None
+
+        if path:
+            try:
+                data = get_annotation_data(path, nested=False)
+            except Exception:
+                pass
+            finally:
+                if data is not None:
+                    done = {item['id']: item for item in retrieve_done(only_ids=False)}
+                    data = [dict(item, **{'annotation': done[item['id']]})
+                            for item in reversed(data) if item['id'] in done]
+                    total = len(done) + len(data)
+
+        return get_payload(path=path, data=data, total=total)
 
     return app

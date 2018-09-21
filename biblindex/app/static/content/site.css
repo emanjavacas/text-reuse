@@ -10,3 +10,7 @@ body {
     font-family: "Segoe UI";
     src: url('../fonts/segoeuil.ttf');
 }
+
+.highlight {
+    background-color: rgba(86,61,124,.15);
+}

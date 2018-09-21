@@ -42,6 +42,7 @@
     <div class="card-body">
       <blockquote class="blockquote mb-0">
         <p id="bernard"></p>
+	<footer class="blockquote-footer" id="bernardLink"></footer>
       </blockquote>
     </div>
   </div>
