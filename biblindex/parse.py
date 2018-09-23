@@ -60,35 +60,42 @@ def get_p(tree):
         yield p
 
 
-def get_context(elem, window=20):
-    prev_text, post_text = [], []
-    prev, post = elem.getprevious(), elem.getnext()
-
-    while len(prev_text) < window:
-        if prev is None:
+def itercontext(seg, max_siblings, preceding):
+    output = []
+    for child in seg.itersiblings(preceding=preceding):
+        if len(output) >= max_siblings:
             break
-        else:
-            if remove_ns(prev.tag) == 'w':
-                prev_text.append(
-                    {'POS': prev.attrib['ana'], 'lemma': prev.attrib['lemma'],
-                     'word': prev.text})
-            elif remove_ns(prev.tag) == 'pc':
-                prev_text.append({'POS': 'PC', 'lemma': prev.text, 'word': prev.text})
-            prev = prev.getprevious()
+        if remove_ns(child.tag) == 'w':
+            output.append(
+                {'POS': child.attrib['ana'],
+                 'lemma': child.attrib['lemma'],
+                 'word': child.text})
+        elif remove_ns(child.tag) == 'pc':
+            output.append({'POS': 'PC', 'lemma': child.text, 'word': child.text})
+        elif remove_ns(child.tag) == 'seg':
+            children = list(child.iterdescendants())
+            if preceding:
+                children = reversed(children)
+            for subchild in children:
+                if remove_ns(subchild.tag) == 'w':
+                    output.append(
+                        {'POS': subchild.attrib['ana'],
+                         'lemma': subchild.attrib['lemma'],
+                         'word': subchild.text})
+                elif remove_ns(subchild.tag) == 'pc':
+                    output.append(
+                        {'POS': 'PC', 'lemma': subchild.text, 'word': subchild.text})
 
-    while len(post_text) < window:
-        if post is None:
-            break
-        else:
-            if remove_ns(post.tag) == 'w':
-                post_text.append(
-                    {'POS': post.attrib['ana'], 'lemma': post.attrib['lemma'],
-                     'word': post.text})
-            elif remove_ns(post.tag) == 'pc':
-                post_text.append({'POS': 'PC', 'lemma': post.text, 'word': post.text})
-            post = post.getnext()
+    output = output[:max_siblings]
+    if preceding:
+        return output[::-1]
+    return output
 
-    return prev_text[::-1], post_text
+
+def get_context(elem, window):
+    prev = itercontext(elem, window, True)
+    post = itercontext(elem, window, False)
+    return prev, post
 
 
 def get_seg_notes(tree):

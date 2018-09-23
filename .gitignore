@@ -106,3 +106,7 @@ ENV/
 # Emacs
 *~
 \u#*
+
+*json
+*ipynb
+*zip

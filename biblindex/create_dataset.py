@@ -18,13 +18,13 @@ def load_scraped_refs(fname='scraped.json'):
     return {ref['url']: ref for ref in refs}, missing
 
 
-def load_texts(refs, missing, **kwargs):
+def load_texts(refs, missing, window=100, **kwargs):
     missed = 0
     for fname, tree in parse.parse_dir(**kwargs):
         for seg, note in parse.get_seg_notes(tree):
             try:
                 url, lang = parse.get_ptr(note)   # throws ValueError if not correct seg
-                prev, post = parse.get_context(seg, window=50)
+                prev, post = parse.get_context(seg, window=window)
                 in_missing = url in missing  # flag to check if missing
                 yield {'id': note.attrib[parse.add_ns('id', ns='w3')],
                        'url': url,
