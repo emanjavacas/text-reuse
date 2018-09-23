@@ -138,6 +138,8 @@ function renderItem(idx) {
   $('#bibleLink').empty();
   $('#bible').text(data[idx]["ref"]);
   $("#bibleLink").append("<a href='" + data[idx]["url"] + "' target='_blank'>" + data[idx]['url'] + "</a>");
+  $("#bibleLink").append("<span style='margin-left:10px'></span>");
+  $("#bibleLink").append("<a href='" + data[idx]["url"].replace(/Vg_/, 'NRSA_') + "' target='_blank'>EN</a>");
 
   /** build bernard */
   $('#bernardLink').empty();
