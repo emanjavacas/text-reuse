@@ -126,7 +126,7 @@ def build_website(root):
     @app.route('/saveAnnotation', method='post')
     def saveAnnotation():
         ann = dict(request.params)
-        ann['timestamp'] = datetime.now().timestamp
+        ann['timestamp'] = datetime.now().timestamp()
         ann['path'] = retrieve_path()
         ann['root'] = root
         ann['type'] = 'annotation'

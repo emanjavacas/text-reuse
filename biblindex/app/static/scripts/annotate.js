@@ -169,9 +169,9 @@ function renderItem(idx) {
       var nextSpan = Number(data[idx].annotation.nextSpan);
       for (var i=0; i<nextChildren.length;i++) {
 	item = Number(nextChildren[i].getAttribute('data-item'));
-	if (item && item < nextSpan) { highlight = true; }
+	if (item && item <= nextSpan) { highlight = true; }
 	if (highlight) { $(nextChildren[i]).addClass("highlight"); }
-	if (item && item == nextSpan) { highlight = false; }
+	if (item && item === nextSpan) { highlight = false; }
       }
     }
     $('#target').addClass("highlight");
