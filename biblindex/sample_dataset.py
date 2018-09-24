@@ -6,7 +6,6 @@ import json
 
 random.seed(1001)
 
-
 lines = []
 with open('SCT1-5.json') as f:
     for l in f:
@@ -14,8 +13,7 @@ with open('SCT1-5.json') as f:
         if obj['type'] == 'inexactQuotation-allusion':
             lines.append(obj)
 
-
-NSPLITS = 6
+NSPLITS = 4
 RESERVE = 20
 PROP = math.ceil(len(lines) / NSPLITS)
 splits = collections.defaultdict(list)
@@ -29,7 +27,6 @@ for split in range(NSPLITS):
     for splitb in range(NSPLITS):
         if split != splitb:
             splits[split].extend(reserve)
-
 
 # CHECKS
 ids = [i['id'] for i in lines]
