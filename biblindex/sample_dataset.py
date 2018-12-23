@@ -19,14 +19,20 @@ PROP = math.ceil(len(lines) / NSPLITS)
 splits = collections.defaultdict(list)
 random.shuffle(lines)
 
+print(len(lines), len(set([i['id'] for i in lines])))
+
 for split in range(NSPLITS):
     split_lines = lines[split*PROP:(split+1)*PROP]
-    splits[split] = split_lines
-    print(split, len(split_lines))
+    for i in split_lines:
+        splits[split].append(i)
     reserve = split_lines[-RESERVE:]
     for splitb in range(NSPLITS):
         if split != splitb:
-            splits[split].extend(reserve)
+            splits[splitb].extend(reserve)
+    print(split, len(split_lines))
+
+for split in range(NSPLITS):
+    print(len(splits[split]), len(set([i['id'] for i in splits[split]])))
 
 # CHECKS
 ids = [i['id'] for i in lines]
