@@ -112,8 +112,8 @@ def build_website(root):
         if path:
             try:
                 data = get_annotation_data(path, nested=False)
-            except Exception:
-                pass
+            except Exception as e:
+                print("Exception!!!", e)
             finally:
                 if data is not None:
                     done = retrieve_done()
@@ -152,6 +152,8 @@ def build_website(root):
                     done = {item['id']: item for item in retrieve_done(only_ids=False)}
                     data = [dict(item, **{'annotation': done[item['id']]})
                             for item in reversed(data) if item['id'] in done]
+                    data = sorted(data, key=lambda item: item['annotation']['timestamp'],
+                                  reverse=True)
                     total = len(done) + len(data)
 
         return get_payload(path=path, data=data, total=total)
