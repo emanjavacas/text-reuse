@@ -110,3 +110,10 @@ ENV/
 *json
 *ipynb
 *zip
+
+# Data
+NT/
+*tar
+*csv
+*xlsx
+*txt
