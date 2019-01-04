@@ -1,4 +1,5 @@
 
+import json
 import numpy as np
 import pie
 
@@ -33,6 +34,16 @@ def load_frequencies(path='/home/manjavacas/corpora/latin.freqs', words=None):
             freqs[w] = freq
 
     return {w: freq / total for w, freq in freqs.items()}
+
+
+def load_bible(path='../splits/SCT1-5.json'):
+    bible_by_id = {}
+    with open(path) as f:
+        for line in f:
+            obj = json.loads(line)
+            if obj['type'] == 'inexactQuotation-allusion':
+                bible_by_id[obj['id']] = {'text': obj['ref'], 'url': obj['url']}
+    return bible_by_id
 
 
 def lemmatize(model, sent, use_beam=True, beam_width=12):

@@ -1,19 +1,9 @@
 
 import os
-import json
 import statistics
+
 import extract
-
-
-# target (bible) data
-def load_bible(path='../splits/SCT1-5.json'):
-    bible_by_id = {}
-    with open(path) as f:
-        for line in f:
-            obj = json.loads(line)
-            bible_by_id[obj['id']] = obj['ref']
-    return bible_by_id
-
+import utils
 
 # source data
 def select(*docs):
@@ -56,16 +46,16 @@ def load_source():
 
 
 if __name__ == '__main__':
-    import utils
     import pie
     model = pie.SimpleModel.load("./capitula.model.tar")
-    source, bible = load_source(), load_bible()
+    source, bible = load_source(), utils.load_bible()
 
-    with open("gold2.csv", "w") as f:
+    with open("gold.csv", "w") as f:
         for doc in source:
             src, trg = doc['selectedText'], bible[doc['id']]
+            src_id, trg, trg_id = doc['id'], trg['text'], trg['url']
             if len(src.split()) > 40:  # ignore longer than 40 words
                 continue
             src_lemma = ' '.join(utils.lemmatize(model, src.lower().split())['lemma'])
             trg_lemma = ' '.join(utils.lemmatize(model, trg.lower().split())['lemma'])
-            f.write('\t'.join([doc['id'], src, trg, src_lemma, trg_lemma]) + '\n')
+            f.write('\t'.join([src_id, trg_id, src, trg, src_lemma, trg_lemma]) + '\n')
