@@ -14,18 +14,32 @@ import stop
 random.seed(1001)
 
 
-def load_gold(path='gold.csv'):
+def load_gold(path='gold.csv', lemmas=False):
     src, trg = [], []
     with open(path) as f:
         for line in f:
-            _, s1, s2, l1, l2 = line.strip().split('\t')
-            # lowercase
-            s1, s2 = s1.lower(), s2.lower()
+            _, _, s1, s2, l1, l2 = line.strip().split('\t')
+            if lemmas:
+                s1, s2 = l1.lower(), l2.lower()
+            else:
+                s1, s2 = s1.lower(), s2.lower()
             # remove stop words
             src.append([w for w in s1.split() if w not in stop.STOPWORDS])
             trg.append([w for w in s2.split() if w not in stop.STOPWORDS])
 
     return src, trg
+
+
+def load_background(path='background.bible.csv', lemmas=False):
+    bg = []
+    with open(path) as f:
+        for line in f:
+            _, toks, lems = line.strip().split('\t')
+            s = lems if lemmas else toks
+            s = [w for w in s.lower().split() if w not in stop.STOPWORDS]
+            assert len(s) > 0
+            bg.append(s)
+    return bg
 
 
 def get_cosine_distance(src, trg, batch=1000):
@@ -81,13 +95,14 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_background', type=int, default=10000)
+    parser.add_argument('--lemmas', action='store_true')
 
     args = parser.parse_args()
 
-    src, trg = load_gold()
+    src, trg = load_gold(lemmas=args.lemmas)
     bg = []
     if args.n_background > 0:
-        bg = load_background()
+        bg = load_background(lemmas=args.lemmas)
         random.shuffle(bg)
         bg = bg[:args.n_background]
     vocab = set(w for s in src + trg + bg for w in s)
@@ -99,8 +114,12 @@ if __name__ == '__main__':
     freqs = [freqs.get(w, min(freqs.values())) for w in words]
 
     w2i = {w: idx for idx, w in enumerate(words)}
-    ats = [1, 5, 10, 20, 50, 100, 200, 500]
-    with open('results{}.csv'.format(args.n_background or ''), 'w') as f:
+    ats = [1, 5, 10, 20, 50]
+
+    suffix = str(args.n_background) + ('.lemma' if args.lemmas else '')
+    outfile = 'results.{}.csv'.format(suffix)
+    print(outfile)
+    with open(outfile, 'w') as f:
         # header
         f.write('\t'.join(['method', *list(map(str, ats))]) + '\n')
 
