@@ -28,16 +28,6 @@ def load_gold(path='gold.csv'):
     return src, trg
 
 
-def load_background(path='background.NT.txt'):
-    bg = []
-    with open(path) as f:
-        for line in f:
-            line = [w for w in line.strip().lower().split() if w not in stop.STOPWORDS]
-            assert len(line) > 0
-            bg.append(line)
-    return bg
-
-
 def get_cosine_distance(src, trg, batch=1000):
     src_norm = src / np.linalg.norm(src, axis=1)[:, None]
     trg_norm = trg / np.linalg.norm(trg, axis=1)[:, None]
