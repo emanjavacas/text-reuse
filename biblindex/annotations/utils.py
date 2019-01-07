@@ -46,8 +46,8 @@ def load_bible(path='../splits/SCT1-5.json'):
     return bible_by_id
 
 
-def lemmatize(model, sent, use_beam=True, beam_width=12):
-    inp, _ = pie.data.pack_batch(model.label_encoder, [sent])
+def lemmatize(model, sent, use_beam=True, beam_width=12, device='cpu'):
+    inp, _ = pie.data.pack_batch(model.label_encoder, [sent], device=device)
     return model.predict(inp, "lemma", use_beam=use_beam, beam_width=beam_width)
 
 

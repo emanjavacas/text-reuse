@@ -24,7 +24,13 @@ def get_verses(tree):
 
 if __name__ == '__main__':
     import pie
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--device', default='cpu')
+    args = parser.parse_args()
+
     model = pie.SimpleModel.load("./capitula.model.tar")
+    model.to(args.device)
     bible = list(utils.load_bible().values())
     texts = []
     with open('background.bible.csv', 'w') as outf:
@@ -52,7 +58,9 @@ if __name__ == '__main__':
                                 is_dup = True
                                 break
                         if not is_dup and text:
-                            lemma = utils.lemmatize(model, text.lower().split())['lemma']
+                            lemma = utils.lemmatize(
+                                model, text.lower().split(), device=args.device
+                            )['lemma']
                             row = '\t'.join([doc_id+'-'+str(idx), text, ' '.join(lemma)])
                             outf.write(row + '\n')
                 except Exception as e:
