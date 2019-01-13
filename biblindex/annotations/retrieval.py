@@ -45,7 +45,7 @@ def load_background(path='background.bible.csv', lemmas=False):
 def get_cosine_distance(src, trg, batch=1000):
     src_norm = src / np.linalg.norm(src, axis=1)[:, None]
     trg_norm = trg / np.linalg.norm(trg, axis=1)[:, None]
-    if len(src) < batch:
+    if len(src) <= batch:
         D = (src_norm[:, None] * trg_norm).sum(2)
     else:
         D = np.zeros((len(src), len(trg)))
@@ -75,14 +75,15 @@ def get_scores_at(D, at=5):
     return float(np.sum(np.argsort(D, axis=1)[:, :at] == index, axis=1).mean())
 
 
-def plot_results(most_at=50):
-    df = pd.read_csv('./results.csv', sep='\t')
+def plot_results(path='./results.csv', most_at=50):
+    df = pd.read_csv(path, sep='\t')
     df = pd.DataFrame.from_dict(
         [{"method": group[0], '@': key, 'score': val}
          for _, group in df.iterrows()
          for key, val in list(group.items())[1:]])
     df = df.astype({'@': np.int32})
-    ax = sns.lineplot(x='@', y='score', hue='method', data=df[df['@'] < most_at])
+    sns.lineplot(x='@', y='score', hue='method', data=df[df['@'] < most_at])
+    # ax = sns.lineplot(x='@', y='score', hue='method', data=df[df['@'] < most_at])
     # ax.set_xscale("log")
     plt.show()
 
@@ -118,7 +119,7 @@ if __name__ == '__main__':
 
     suffix = str(args.n_background) + ('.lemma' if args.lemmas else '')
     outfile = 'results.{}.csv'.format(suffix)
-    print(outfile)
+
     with open(outfile, 'w') as f:
         # header
         f.write('\t'.join(['method', *list(map(str, ats))]) + '\n')
