@@ -1,11 +1,10 @@
 
-import stop
 import utils
 import random
 import numpy as np
 
-# random.seed(1001)
-# np.random.seed(1001)
+random.seed(1001)
+np.random.seed(1001)
 
 
 def load_gold(path='gold.csv', lemmas=False, return_ids=False):
@@ -17,9 +16,7 @@ def load_gold(path='gold.csv', lemmas=False, return_ids=False):
             if lemmas:
                 s1, s2 = l1, l2
 
-            # remove stop words & lowercase
-            s1 = [w for w in s1.lower().split() if w not in stop.STOPWORDS]
-            s2 = [w for w in s2.lower().split() if w not in stop.STOPWORDS]
+            s1, s2 = utils.process_sent(s1), utils.process_sent(s2)
 
             if return_ids:
                 s1, s2 = (id1, s1), (id2, s2)
@@ -37,7 +34,7 @@ def load_background(path='background.bible.csv',
         for line in f:
             idx, toks, lems = line.strip().split('\t')
             s = lems if lemmas else toks
-            s = [w for w in s.lower().split() if w not in stop.STOPWORDS]
+            s = utils.process_sent(s)
             assert len(line) > 0
             if return_ids:
                 s = (idx, s)

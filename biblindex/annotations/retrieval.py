@@ -14,31 +14,30 @@ import stop
 random.seed(1001)
 
 
-def load_gold(path='gold.csv', lemmas=False):
+def load_gold(path='gold.csv', lemmas=False, lower=True, remnonalpha=True):
     src, trg = [], []
     with open(path) as f:
         for line in f:
             _, _, s1, s2, l1, l2 = line.strip().split('\t')
             if lemmas:
-                s1, s2 = l1.lower(), l2.lower()
-            else:
-                s1, s2 = s1.lower(), s2.lower()
-            # remove stop words
-            src.append([w for w in s1.split() if w not in stop.STOPWORDS])
-            trg.append([w for w in s2.split() if w not in stop.STOPWORDS])
+                s1, s2 = l1, l2
+
+            src.append(utils.process_sent(s1, remnonalpha=remnonalpha, lower=lower))
+            trg.append(utils.process_sent(s2, remnonalpha=remnonalpha, lower=lower))
 
     return src, trg
 
 
-def load_background(path='background.bible.csv', lemmas=False):
+def load_background(path='background.bible.csv',
+                    lemmas=False, lower=True, remnonalpha=True):
     bg = []
     with open(path) as f:
         for line in f:
             _, toks, lems = line.strip().split('\t')
             s = lems if lemmas else toks
-            s = [w for w in s.lower().split() if w not in stop.STOPWORDS]
-            assert len(s) > 0
+            s = utils.process_sent(s, remnonalpha=remnonalpha, lower=lower)
             bg.append(s)
+
     return bg
 
 

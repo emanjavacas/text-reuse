@@ -1,10 +1,27 @@
 
+import re
 import json
+
 import numpy as np
 import pie
 
+import stop
+
 
 LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
+
+
+def process_sent(s, lower=True, remnonalpha=True):
+    # lower
+    if lower:
+        s = s.lower()
+    # non alpha
+    if remnonalpha:
+        s = re.findall(r"(?u)\b\w\w+\b", s)
+    # remove stopwords
+    s = [w for w in s if w not in stop.STOPWORDS]
+
+    return s
 
 
 def load_embeddings(words, path=LATIN):
