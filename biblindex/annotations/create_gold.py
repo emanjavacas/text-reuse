@@ -1,4 +1,5 @@
 
+import json
 import os
 import statistics
 
@@ -45,17 +46,37 @@ def load_source():
     return docs
 
 
+def enrich_with_lemmas_from_source(docs, path='../splits/SCT1-5.json'):
+    with open(path) as f:
+        source = {}
+        for line in f:
+            doc = json.loads(line)
+            source[doc['id']] = doc
+
+    for doc in docs:
+        sdoc = source[doc['id']]
+        text = [w['lemma'] for w in sdoc['textdata']]
+        text = [w['lemma'] for w in sdoc['textcontext']['prev'][-doc['prevSpan']:]] + text
+        text += [w['lemma'] for w in sdoc['textcontext']['next'][:doc['nextSpan']]]
+        doc['text_lemma'] = ' '.join(text)
+        assert len(doc['text_lemma'].split()) == len(doc['selectedText'].split())
+
+    return docs
+
+
 if __name__ == '__main__':
     import pie
     model = pie.SimpleModel.load("./capitula.model.tar")
     source, bible = load_source(), utils.load_bible()
+    source = enrich_with_lemmas_from_source(source)
 
-    with open("gold.csv", "w") as f:
+    with open("gold2.csv", "w") as f:
         for doc in source:
             src, trg = doc['selectedText'], bible[doc['id']]
             src_id, trg, trg_id = doc['id'], trg['text'], trg['url']
             if len(src.split()) > 40:  # ignore longer than 40 words
                 continue
-            src_lemma = ' '.join(utils.lemmatize(model, src.lower().split())['lemma'])
+            # src_lemma = ' '.join(utils.lemmatize(model, src.lower().split())['lemma'])
+            src_lemma = doc['text_lemma']
             trg_lemma = ' '.join(utils.lemmatize(model, trg.lower().split())['lemma'])
             f.write('\t'.join([src_id, trg_id, src, trg, src_lemma, trg_lemma]) + '\n')

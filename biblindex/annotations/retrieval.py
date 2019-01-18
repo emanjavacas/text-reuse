@@ -1,4 +1,6 @@
 
+import os
+import glob
 import random
 
 import numpy as np
@@ -9,36 +11,8 @@ import matplotlib.pyplot as plt
 import utils
 import sentence_embeddings
 import wmd
-import stop
 
 random.seed(1001)
-
-
-def load_gold(path='gold.csv', lemmas=False, lower=True, remnonalpha=True):
-    src, trg = [], []
-    with open(path) as f:
-        for line in f:
-            _, _, s1, s2, l1, l2 = line.strip().split('\t')
-            if lemmas:
-                s1, s2 = l1, l2
-
-            src.append(utils.process_sent(s1, remnonalpha=remnonalpha, lower=lower))
-            trg.append(utils.process_sent(s2, remnonalpha=remnonalpha, lower=lower))
-
-    return src, trg
-
-
-def load_background(path='background.bible.csv',
-                    lemmas=False, lower=True, remnonalpha=True):
-    bg = []
-    with open(path) as f:
-        for line in f:
-            _, toks, lems = line.strip().split('\t')
-            s = lems if lemmas else toks
-            s = utils.process_sent(s, remnonalpha=remnonalpha, lower=lower)
-            bg.append(s)
-
-    return bg
 
 
 def get_cosine_distance(src, trg, batch=1000):
@@ -74,6 +48,13 @@ def get_scores_at(D, at=5):
     return float(np.sum(np.argsort(D, axis=1)[:, :at] == index, axis=1).mean())
 
 
+def get_indices(D, at=5):
+    index = np.arange(0, len(D))
+    index = np.repeat(index[:, None], at, axis=1)
+    retrieved = np.argsort(D, axis=1)[:, :at]
+    return retrieved, np.sum(retrieved == index, axis=1)
+
+
 def plot_results(path='./results.csv', most_at=50):
     df = pd.read_csv(path, sep='\t')
     df = pd.DataFrame.from_dict(
@@ -81,14 +62,27 @@ def plot_results(path='./results.csv', most_at=50):
          for _, group in df.iterrows()
          for key, val in list(group.items())[1:]])
     df = df.astype({'@': np.int32})
-    sns.lineplot(x='@', y='score', hue='method', data=df[df['@'] < most_at])
+    sns.lineplot(x='@', y='score', hue='method', data=df[df['@'] < most_at],
+                 markers=True, style='method')
     # ax = sns.lineplot(x='@', y='score', hue='method', data=df[df['@'] < most_at])
     # ax.set_xscale("log")
     plt.show()
 
 
-def plot_background(at=20):
-    df = None
+def plot_background(lemma=False, at=20):
+    rows = []
+    for f in glob.glob('results*csv'):
+        if (lemma and 'lemma' not in f) or (not lemma and 'lemma' in f):
+            continue
+        n_background = int(os.path.basename(f).split('.')[1])
+        for _, group in pd.read_csv(f, sep='\t').iterrows():
+            for key, val in list(group.items())[1:]:
+                if int(key) == at:
+                    rows.append({'method': group[0], 'score': val, 'n': n_background})
+
+    sns.lineplot(x='n', y='score', hue='method', data=pd.DataFrame.from_dict(rows),
+                 markers=True, style='method')
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -99,10 +93,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    src, trg = load_gold(lemmas=args.lemmas)
+    src, trg = utils.load_gold(lemmas=args.lemmas)
     bg = []
     if args.n_background > 0:
-        bg = load_background(lemmas=args.lemmas)
+        bg = utils.load_background(lemmas=args.lemmas)
         random.shuffle(bg)
         bg = bg[:args.n_background]
     vocab = set(w for s in src + trg + bg for w in s)

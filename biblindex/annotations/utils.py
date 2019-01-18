@@ -1,7 +1,11 @@
 
+import collections
+import os
+import glob
 import re
 import json
 
+from lxml import etree
 import numpy as np
 import pie
 
@@ -11,7 +15,7 @@ import stop
 LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
 
 
-def process_sent(s, lower=True, remnonalpha=True):
+def process_sent(s, lower=True, remnonalpha=True, remstop=True):
     # lower
     if lower:
         s = s.lower()
@@ -19,9 +23,84 @@ def process_sent(s, lower=True, remnonalpha=True):
     if remnonalpha:
         s = re.findall(r"(?u)\b\w\w+\b", s)
     # remove stopwords
-    s = [w for w in s if w not in stop.STOPWORDS]
+    if remstop:
+        s = [w for w in s if w not in stop.STOPWORDS]
 
     return s
+
+
+def load_gold(path='gold.csv', return_ids=False, lemmas=False, **kwargs):
+
+    src, trg = [], []
+    with open(path) as f:
+        for line in f:
+            id1, id2, s1, s2, l1, l2 = line.strip().split('\t')
+            if lemmas:
+                s1, s2 = l1, l2
+            s1, s2 = process_sent(s1, **kwargs), process_sent(s2, **kwargs)
+
+            if return_ids:
+                s1, s2 = (id1, s1), (id2, s1)
+            src.append(s1)
+            trg.append(s2)
+
+    return src, trg
+
+
+def load_background(path='background.bible.csv', return_ids=False, lemmas=False,
+                    **kwargs):
+    bg = []
+    with open(path) as f:
+        for line in f:
+            idx, toks, lems = line.strip().split('\t')
+            s = lems if lemmas else toks
+            s = process_sent(s, **kwargs)
+            if return_ids:
+                s = (idx, s)
+            bg.append(s)
+
+    return bg
+
+
+def load_bernard(path='../splits/SCT1-5'):
+
+    def remove_ns(tag):
+        return re.sub(r'{[^}]+}', '', tag)
+
+    tokens, lemmas = [], []
+    for f in glob.glob(os.path.join(path, '*xml')):
+        try:
+            with open(f) as fn:
+                tree = etree.fromstring(fn.read().encode())
+            doc = []
+            for w in tree.xpath('.//tei:w|.//tei:pc',
+                                namespaces={'tei': 'http://www.tei-c.org/ns/1.0'}):
+                token = w.text
+                if remove_ns(w.tag) == 'w':
+                    lemma = w.attrib['lemma']
+                else:
+                    lemma = w.text
+                doc.append((token, lemma))
+            token, lemma = zip(*doc)
+            tokens.append(token)
+            lemmas.append(lemma)
+        except Exception as e:
+            print("Error", f, e)
+    return tokens, lemmas
+
+
+def get_freqs(docs, **kwargs):
+    counts = collections.Counter(
+        w for doc in docs for w in process_sent(' '.join(doc), **kwargs))
+
+    return {w: c/sum(counts.values()) for w, c in counts.items()}
+
+
+def load_bernard_freqs(lemmas=False, **kwargs):
+    bern_toks, bern_lems = load_bernard()
+    if lemmas:
+        bern_toks = bern_lems
+    return get_freqs(bern_toks, **kwargs)
 
 
 def load_embeddings(words, path=LATIN):
