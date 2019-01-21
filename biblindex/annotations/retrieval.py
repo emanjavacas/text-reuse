@@ -88,12 +88,19 @@ def plot_background(lemma=False, at=20):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n_background', type=int, default=10000)
+    parser.add_argument('--n_background', type=int, default=35000)
     parser.add_argument('--lemmas', action='store_true')
 
     args = parser.parse_args()
+    src, trg = [], []
+    for s, t in zip(*utils.load_gold(lemmas=args.lemmas)):
+        if len(set(s).intersection(set(t))) >= 2:
+            continue
+        src.append(s)
+        trg.append(t)
 
-    src, trg = utils.load_gold(lemmas=args.lemmas)
+    print("Number of pairs", len(src))
+
     bg = []
     if args.n_background > 0:
         bg = utils.load_background(lemmas=args.lemmas)
@@ -111,7 +118,7 @@ if __name__ == '__main__':
     ats = [1, 5, 10, 20, 50]
 
     suffix = str(args.n_background) + ('.lemma' if args.lemmas else '')
-    outfile = 'results.{}.csv'.format(suffix)
+    outfile = 'results.max2.{}.csv'.format(suffix)
 
     with open(outfile, 'w') as f:
         # header
@@ -176,4 +183,13 @@ if __name__ == '__main__':
 # embedder = sentence_embeddings.SIF(W, words, freqs)
 # embedder = sentence_embeddings.BOW(W, words)
 # D = get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+
 # get_scores_at(D, at=5)
+
+
+# src, trg = [], []
+# for s, t in zip(*utils.load_gold(lemmas=True)):
+#     if len(set(s).intersection(set(t))) >= 2:
+#         continue
+#     src.append(s)
+#     trg.append(t)
