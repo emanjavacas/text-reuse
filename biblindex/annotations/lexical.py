@@ -125,7 +125,7 @@ if __name__ == '__main__':
     trg_freqs = utils.get_freqs(trg)
 
     ats = [1, 5, 10, 20, 50]
-    outputpath = 'results/baseline.{}'.format(args.n_background)
+    outputpath = 'results/lexical.{}'.format(args.n_background)
 
     if args.lemmas:
         outputpath += '.lemmas'

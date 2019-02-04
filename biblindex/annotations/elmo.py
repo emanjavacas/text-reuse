@@ -85,7 +85,7 @@ if __name__ == '__main__':
     with open(outfile, 'w') as f:
         # header
         f.write('\t'.join(['method', 'output_layer', *list(map(str, ats))]) + '\n')
-        
+
         layers = [-1, 0, 1, 2]
         for layer in layers:
 
@@ -123,7 +123,7 @@ if __name__ == '__main__':
                 results.append(utils.get_scores_at(D, at=at))
             f.write('\t'.join(['TfIdf', str(layer)] + list(map(str, results))) + '\n')
 
-            if layer > 0: # don't do wmd at any other level than word
+            if layer != 0:  # don't do wmd at any other level than word
                 continue
 
             print("WMD", end="")

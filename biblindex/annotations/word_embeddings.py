@@ -97,7 +97,7 @@ if __name__ == '__main__':
     w2i = {w: idx for idx, w in enumerate(words)}
     ats = [1, 5, 10, 20, 50]
 
-    outfile = 'results/retrieval.{}'.format(args.n_background)
+    outfile = 'results/distributional.{}'.format(args.n_background)
     if args.lemmas:
         outfile += '.lemmas'
     if args.avoid_lexical:
