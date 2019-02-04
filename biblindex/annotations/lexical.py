@@ -71,6 +71,8 @@ def tesserae_score(s1, s2, freqs1, freqs2, method='min_freq'):
         d_t, d_s = get_d_min_freq(s1, freqs1), get_d_min_freq(s2, freqs2)
     elif method == 'max_dist':
         d_t, d_s = get_d_max_dist(s1, matching), get_d_max_dist(s2, matching)
+    else:
+        raise ValueError(method + " not known")
 
     return math.log((f_t + f_s) / (d_t + d_s))
 
@@ -78,8 +80,9 @@ def tesserae_score(s1, s2, freqs1, freqs2, method='min_freq'):
 def tesserae_baseline(src, trg, src_freqs, trg_freqs, at=1, method='min_freq'):
     scores = []
     output = []
+    print("t", method)
     for idx, s1 in enumerate(src):
-        tscores = [tesserae_score(s1, s2, src_freqs, trg_freqs) for s2 in trg]
+        tscores = [tesserae_score(s1, s2, src_freqs, trg_freqs, method) for s2 in trg]
         idxs = np.argsort(tscores)[::-1][:at]
         # filter out those with 0 score
         idxs = [idx for idx in idxs if tscores[idx] > 0]
@@ -105,7 +108,7 @@ if __name__ == '__main__':
     trg_freqs = utils.get_freqs(trg)
 
     ats = [1, 5, 10, 20, 50]
-    outputpath = 'tesserae.{}'.format(args.n_background)
+    outputpath = 'results/tesserae.{}'.format(args.n_background)
     if args.lemmas:
         outputpath += '.lemmas'
     outputpath += '.csv'
@@ -115,6 +118,7 @@ if __name__ == '__main__':
         for method in ['max_dist', 'min_freq']:
             scores = []
             for at in ats:
+                print(method, at)
                 score, _ = tesserae_baseline(
                     src, trg, src_freqs, trg_freqs, at=at, method=method)
                 scores.append(str(score))

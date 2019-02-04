@@ -15,6 +15,13 @@ import stop
 LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
 
 
+def get_scores_at(D, at=5):
+    index = np.arange(0, len(D))
+    index = np.repeat(index[:, None], at, axis=1)
+
+    return float(np.sum(np.argsort(D, axis=1)[:, :at] == index, axis=1).mean())
+
+
 def process_sent(s, lower=True, remnonalpha=True, remstop=True):
     # lower
     if lower:
@@ -154,3 +161,18 @@ def pairwise_dists(embs):
     norm = (embs * embs).sum(1, keepdims=True) ** .5
     normed = embs / norm
     return 1 - (normed @ normed.T)
+
+
+def get_cosine_distance(src, trg, batch=1000):
+    src_norm = src / np.linalg.norm(src, axis=1)[:, None]
+    trg_norm = trg / np.linalg.norm(trg, axis=1)[:, None]
+    if len(src) <= batch:
+        D = (src_norm[:, None] * trg_norm).sum(2)
+    else:
+        D = np.zeros((len(src), len(trg)))
+        for i in range(0, len(src), batch):
+            i_to = min(i+batch, len(src))
+            for j in range(0, len(trg), batch):
+                j_to = min(j+batch, len(trg))
+                D[i:i_to, j:j_to] = (src_norm[i:i_to, None] * trg_norm[j:j_to]).sum(2)
+    return 1 - D

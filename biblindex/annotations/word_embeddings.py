@@ -15,37 +15,15 @@ import wmd
 random.seed(1001)
 
 
-def get_cosine_distance(src, trg, batch=1000):
-    src_norm = src / np.linalg.norm(src, axis=1)[:, None]
-    trg_norm = trg / np.linalg.norm(trg, axis=1)[:, None]
-    if len(src) <= batch:
-        D = (src_norm[:, None] * trg_norm).sum(2)
-    else:
-        D = np.zeros((len(src), len(trg)))
-        for i in range(0, len(src), batch):
-            i_to = min(i+batch, len(src))
-            for j in range(0, len(trg), batch):
-                j_to = min(j+batch, len(trg))
-                D[i:i_to, j:j_to] = (src_norm[i:i_to, None] * trg_norm[j:j_to]).sum(2)
-    return 1 - D
-
-
 def get_wmd(src, trg, W, w2i):
     # get word dists
-    dists = get_cosine_distance(W, W)
+    dists = utils.get_cosine_distance(W, W)
     D = np.zeros((len(src), len(trg)))
     for i in range(len(src)):
         for j in range(len(trg)):
             D[i, j] = wmd.get_wmd(' '.join(src[i]), ' '.join(trg[j]), dists, w2i)
 
     return D
-
-
-def get_scores_at(D, at=5):
-    index = np.arange(0, len(D))
-    index = np.repeat(index[:, None], at, axis=1)
-
-    return float(np.sum(np.argsort(D, axis=1)[:, :at] == index, axis=1).mean())
 
 
 def get_indices(D, at=5):
@@ -119,7 +97,7 @@ if __name__ == '__main__':
     w2i = {w: idx for idx, w in enumerate(words)}
     ats = [1, 5, 10, 20, 50]
 
-    outfile = 'retrieval.{}'.format(args.n_background)
+    outfile = 'results/retrieval.{}'.format(args.n_background)
     if args.lemmas:
         outfile += '.lemmas'
     if args.avoid_lexical:
@@ -133,22 +111,22 @@ if __name__ == '__main__':
         # BOW
         print("BOW", end="")
         embedder = sentence_embeddings.BOW(W, words)
-        D = get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+        D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
         results = []
         for at in ats:
             print(".", end='', flush=True)
-            results.append(get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=at))
         f.write('\t'.join(['BOW'] + list(map(str, results))) + '\n')
         print()
 
         # SIF
         print("SIF", end="")
         embedder = sentence_embeddings.SIF(W, words, freqs)
-        D = get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+        D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
         results = []
         for at in ats:
             print(".", end='', flush=True)
-            results.append(get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=at))
         f.write('\t'.join(['SIF'] + list(map(str, results))) + '\n')
         print()
 
@@ -158,18 +136,18 @@ if __name__ == '__main__':
         D = get_wmd(src, trg, W, w2i)
         for at in ats:
             print(".", end='', flush=True)
-            results.append(get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=at))
         f.write('\t'.join(['WMD'] + list(map(str, results))) + '\n')
         print()
 
         # TfIdf
         print("TfIdf", end="")
         embedder = sentence_embeddings.TFIDF(W, words)
-        D = get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+        D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
         results = []
         for at in ats:
             print(".", end='', flush=True)
-            results.append(get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=at))
         f.write('\t'.join(['TfIdf'] + list(map(str, results))) + '\n')
         print()
 
@@ -188,9 +166,9 @@ if __name__ == '__main__':
 # w2i = {w: idx for idx, w in enumerate(words)}
 # embedder = sentence_embeddings.SIF(W, words, freqs)
 # embedder = sentence_embeddings.BOW(W, words)
-# D = get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+# D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
 
-# get_scores_at(D, at=5)
+# utils.get_scores_at(D, at=5)
 
 
 # src, trg = [], []
