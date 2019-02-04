@@ -1,8 +1,13 @@
 
+import collections
 import math
 import utils
 import random
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_distances
+
+import retrieval
 
 random.seed(1001)
 np.random.seed(1001)
@@ -29,6 +34,20 @@ def random_baseline(at=1, n_background=35000, lemmas=False):
 
 
 # random_baseline(at=100, n_background=35000) * 100
+
+
+def tf_idf_baseline(src, trg, min_freq=1):
+    vocab = {}
+    for w, c in collections.Counter(w for s in src + trg for w in s).most_common():
+        if c > min_freq:
+            vocab[w] = len(vocab)
+
+    src_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in src)
+    trg_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in trg)
+
+    D = cosine_distances(src_embs, trg_embs)
+
+    return D
 
 
 def get_d_min_freq(s, freqs):
@@ -105,7 +124,7 @@ if __name__ == '__main__':
     trg_freqs = utils.get_freqs(trg)
 
     ats = [1, 5, 10, 20, 50]
-    outputpath = 'tesserae.{}'.format(args.n_background)
+    outputpath = 'baseline.{}'.format(args.n_background)
     if args.lemmas:
         outputpath += '.lemmas'
     outputpath += '.csv'
@@ -118,4 +137,10 @@ if __name__ == '__main__':
                 score, _ = tesserae_baseline(
                     src, trg, src_freqs, trg_freqs, at=at, method=method)
                 scores.append(str(score))
-            f.write('\t'.join([method] + scores) + '\n')
+            f.write('\t'.join(['tesserae-' + method] + scores) + '\n')
+
+        D = tf_idf_baseline(src, trg)
+        scores = []
+        for at in ats:
+            scores.append(str(retrieval.get_scores_at(D, at=at)))
+        f.write('\t'.join(['tfidf'] + scores) + '\n')
