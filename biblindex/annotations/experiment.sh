@@ -7,7 +7,7 @@ for n in ${N[@]}; do
     # Word_Embeddings with word embeddings on non-lexical matches at 2
     python word_embeddings.py --avoid_lexical --n_background $n --lemma
     python word_embeddings.py --avoid_lexical --n_background $n
-    # Tesserae
+    # Lexical
     python lexical.py --n_background $n --lemma
     python lexical.py --n_background $n
     # Elmo
