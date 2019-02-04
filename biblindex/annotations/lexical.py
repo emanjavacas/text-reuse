@@ -7,8 +7,6 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_distances
 
-import retrieval
-
 random.seed(1001)
 np.random.seed(1001)
 
@@ -147,5 +145,5 @@ if __name__ == '__main__':
         D = tf_idf_baseline(src, trg)
         scores = []
         for at in ats:
-            scores.append(str(retrieval.get_scores_at(D, at=at)))
+            scores.append(str(utils.get_scores_at(D, at=at)))
         f.write('\t'.join(['tfidf'] + scores) + '\n')
