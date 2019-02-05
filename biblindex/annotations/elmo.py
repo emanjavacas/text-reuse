@@ -7,6 +7,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from elmoformanylangs import Embedder
 
 import utils
+from steps import steps
 import sentence_embeddings
 import wmd
 
@@ -78,13 +79,12 @@ if __name__ == '__main__':
     freqs = {w: freqs.get(w, min(freqs.values())) for w in words}
 
     w2i = {w: idx for idx, w in enumerate(words)}
-    ats = [1, 5, 10, 20, 50]
 
     outfile = 'results/elmo.{}.csv'.format(args.n_background)
 
     with open(outfile, 'w') as f:
         # header
-        f.write('\t'.join(['method', 'output_layer', *list(map(str, ats))]) + '\n')
+        f.write('\t'.join(['method', 'output_layer', *list(map(str, steps))]) + '\n')
 
         layers = [-1, 0, 1, 2]
         for layer in layers:
@@ -98,9 +98,9 @@ if __name__ == '__main__':
                 np.array([emb.mean(0) for emb in src_embs]),
                 np.array([emb.mean(0) for emb in trg_embs]))
             results = []
-            for at in ats:
+            for step in steps:
                 print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=at))
+                results.append(utils.get_scores_at(D, at=step))
             f.write('\t'.join(['BOW', str(layer)] + list(map(str, results))) + '\n')
 
             print("SIF", end="")
@@ -108,9 +108,9 @@ if __name__ == '__main__':
                 get_sif_embeddings(src, src_embs, freqs),
                 get_sif_embeddings(trg, trg_embs, freqs))
             results = []
-            for at in ats:
+            for step in steps:
                 print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=at))
+                results.append(utils.get_scores_at(D, at=step))
             f.write('\t'.join(['SIF', str(layer)] + list(map(str, results))) + '\n')
 
             print("TfIdf", end="")
@@ -118,9 +118,9 @@ if __name__ == '__main__':
                 get_tfidf_embeddings(src, src_embs),
                 get_tfidf_embeddings(trg, trg_embs))
             results = []
-            for at in ats:
+            for step in steps:
                 print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=at))
+                results.append(utils.get_scores_at(D, at=step))
             f.write('\t'.join(['TfIdf', str(layer)] + list(map(str, results))) + '\n')
 
             if layer != 0:  # don't do wmd at any other level than word
@@ -130,8 +130,8 @@ if __name__ == '__main__':
             results = []
             W = np.vstack(model.sents2elmo([[w] for w in words], output_layer=0))
             D = get_wmd(src, trg, W, w2i)
-            for at in ats:
+            for step in steps:
                 print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=at))
+                results.append(utils.get_scores_at(D, at=step))
             f.write('\t'.join(['WMD', str(layer)] + list(map(str, results))) + '\n')
             print()

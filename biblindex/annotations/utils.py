@@ -163,7 +163,7 @@ def pairwise_dists(embs):
     return 1 - (normed @ normed.T)
 
 
-def get_cosine_distance(src, trg, batch=1000):
+def get_cosine_similarity(src, trg, batch=1000):
     src_norm = src / np.linalg.norm(src, axis=1)[:, None]
     trg_norm = trg / np.linalg.norm(trg, axis=1)[:, None]
     if len(src) <= batch:
@@ -175,4 +175,8 @@ def get_cosine_distance(src, trg, batch=1000):
             for j in range(0, len(trg), batch):
                 j_to = min(j+batch, len(trg))
                 D[i:i_to, j:j_to] = (src_norm[i:i_to, None] * trg_norm[j:j_to]).sum(2)
-    return 1 - D
+    return D
+
+
+def get_cosine_distance(src, trg, **kwargs):
+    return 1 - get_cosine_similarity(src, trg, **kwargs)

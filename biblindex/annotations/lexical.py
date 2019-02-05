@@ -1,11 +1,14 @@
 
 import collections
 import math
-import utils
 import random
+
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_distances
+
+import utils
+from steps import steps
 
 random.seed(1001)
 np.random.seed(1001)
@@ -33,12 +36,16 @@ def random_baseline(at=1, n_background=35000, lemmas=False):
 
 # random_baseline(at=100, n_background=35000) * 100
 
-
-def tf_idf_baseline(src, trg, min_freq=1):
+def get_vocab(sents, min_freq):
     vocab = {}
-    for w, c in collections.Counter(w for s in src + trg for w in s).most_common():
+    for w, c in collections.Counter(w for s in sents for w in s).most_common():
         if c > min_freq:
             vocab[w] = len(vocab)
+    return vocab
+
+
+def tf_idf_baseline(src, trg, min_freq=1):
+    vocab = get_vocab(src + trg, min_freq)
 
     src_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in src)
     trg_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in trg)
@@ -124,7 +131,6 @@ if __name__ == '__main__':
     src_freqs = utils.load_bernard_freqs(lemmas=args.lemmas)
     trg_freqs = utils.get_freqs(trg)
 
-    ats = [1, 5, 10, 20, 50]
     outputpath = 'results/lexical.{}'.format(args.n_background)
 
     if args.lemmas:
@@ -132,18 +138,17 @@ if __name__ == '__main__':
     outputpath += '.csv'
 
     with open(outputpath, 'w') as f:
-        f.write('\t'.join(['method'] + list(map(str, ats))) + '\n')
+        f.write('\t'.join(['method'] + list(map(str, steps))) + '\n')
         for method in ['max_dist', 'min_freq']:
             scores = []
-            for at in ats:
-                print(method, at)
+            for step in steps:
                 score, _ = tesserae_baseline(
-                    src, trg, src_freqs, trg_freqs, at=at, method=method)
+                    src, trg, src_freqs, trg_freqs, at=step, method=method)
                 scores.append(str(score))
             f.write('\t'.join(['tesserae-' + method] + scores) + '\n')
 
         D = tf_idf_baseline(src, trg)
         scores = []
-        for at in ats:
-            scores.append(str(utils.get_scores_at(D, at=at)))
+        for step in steps:
+            scores.append(str(utils.get_scores_at(D, at=step)))
         f.write('\t'.join(['tfidf'] + scores) + '\n')

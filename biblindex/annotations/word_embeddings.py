@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import utils
 import sentence_embeddings
 import wmd
+from steps import steps
 
 random.seed(1001)
 
@@ -95,7 +96,6 @@ if __name__ == '__main__':
     freqs = [freqs.get(w, min(freqs.values())) for w in words]
 
     w2i = {w: idx for idx, w in enumerate(words)}
-    ats = [1, 5, 10, 20, 50]
 
     outfile = 'results/distributional.{}'.format(args.n_background)
     if args.lemmas:
@@ -106,16 +106,16 @@ if __name__ == '__main__':
 
     with open(outfile, 'w') as f:
         # header
-        f.write('\t'.join(['method', *list(map(str, ats))]) + '\n')
+        f.write('\t'.join(['method', *list(map(str, steps))]) + '\n')
 
         # BOW
         print("BOW", end="")
         embedder = sentence_embeddings.BOW(W, words)
         D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
         results = []
-        for at in ats:
+        for step in steps:
             print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=step))
         f.write('\t'.join(['BOW'] + list(map(str, results))) + '\n')
         print()
 
@@ -124,9 +124,9 @@ if __name__ == '__main__':
         embedder = sentence_embeddings.SIF(W, words, freqs)
         D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
         results = []
-        for at in ats:
+        for step in steps:
             print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=step))
         f.write('\t'.join(['SIF'] + list(map(str, results))) + '\n')
         print()
 
@@ -134,9 +134,9 @@ if __name__ == '__main__':
         print("WMD", end="")
         results = []
         D = get_wmd(src, trg, W, w2i)
-        for at in ats:
+        for step in steps:
             print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=step))
         f.write('\t'.join(['WMD'] + list(map(str, results))) + '\n')
         print()
 
@@ -145,9 +145,9 @@ if __name__ == '__main__':
         embedder = sentence_embeddings.TFIDF(W, words)
         D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
         results = []
-        for at in ats:
+        for step in steps:
             print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=at))
+            results.append(utils.get_scores_at(D, at=step))
         f.write('\t'.join(['TfIdf'] + list(map(str, results))) + '\n')
         print()
 
