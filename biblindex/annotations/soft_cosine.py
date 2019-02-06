@@ -50,6 +50,14 @@ for i in tqdm.tqdm(range(len(trg))):
 s3s = soft_cosine3(s[0], t, M)
 
 
+# slow
+def soft_cosine3(s, ts, M):
+    num = s[None, :] @ (M @ ts.T)
+    den1 = np.sqrt(s @ M @ s)
+    den2 = np.sqrt(np.diag(ts @ M @ ts.T))
+    return (num / ((np.ones(len(den2)) * den1) * den2))[0]
+
+
 # Fully batched: still not quite there
 def soft_cosine2(src, trg, vocab, S):
     src_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in src)
@@ -67,14 +75,6 @@ def soft_cosine2(src, trg, vocab, S):
 
     return num / (den1 * den2)
 """
-
-
-def soft_cosine3(s, ts, M):
-    num = s[None, :] @ (M @ ts.T)
-    den1 = np.sqrt(s @ M @ s)
-    den2 = np.sqrt(np.diag(ts @ M @ ts.T))
-    return (num / ((np.ones(len(den2)) * den1) * den2))[0]
-
 
 # speed up by caching computations
 def soft_cosine4(ss, ts, M):
@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
     with open(outputpath, 'w') as f:
         f.write('\t'.join(['method', 'factor'] + list(map(str, steps))) + '\n')
-        for factor in [1, 1.25, 1.75, 2, 2.5, 5, 10]:
+        for factor in [1, 1.5, 2, 5, 7.5, 10, 15]:
             sims = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, factor=factor))
             scores = []
             for step in steps:
