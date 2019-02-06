@@ -1,4 +1,6 @@
 
+import time
+import contextlib
 import collections
 import os
 import glob
@@ -15,11 +17,16 @@ import stop
 LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
 
 
-def get_scores_at(D, at=5):
+def get_scores_at(D, at=5, input_type='dist'):
     index = np.arange(0, len(D))
     index = np.repeat(index[:, None], at, axis=1)
 
-    return float(np.sum(np.argsort(D, axis=1)[:, :at] == index, axis=1).mean())
+    if input_type == 'dist':
+        return float(np.sum(np.argsort(D, axis=1)[:, :at] == index, axis=1).mean())
+    elif input_type == 'sim':
+        return float(np.sum(np.argsort(D, axis=1)[:, -at:] == index, axis=1).mean())
+    else:
+        raise ValueError("Unknown `input_type`: {}".format(input_type))
 
 
 def process_sent(s, lower=True, remnonalpha=True, remstop=True):
@@ -180,3 +187,10 @@ def get_cosine_similarity(src, trg, batch=1000):
 
 def get_cosine_distance(src, trg, **kwargs):
     return 1 - get_cosine_similarity(src, trg, **kwargs)
+
+
+@contextlib.contextmanager
+def timing():
+    start = time.time()
+    yield
+    print(time.time() - start)
