@@ -3,6 +3,7 @@ import random
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 from elmoformanylangs import Embedder
 
@@ -39,7 +40,7 @@ def get_tfidf_embeddings(sents, s_embs):
 
 def get_wmd(src, trg, W, w2i):
     # get word dists
-    dists = utils.get_cosine_distance(W, W)
+    dists = 1 - cosine_similarity(W)
     D = np.zeros((len(src), len(trg)))
     for i in range(len(src)):
         for j in range(len(trg)):
@@ -94,7 +95,7 @@ if __name__ == '__main__':
             trg_embs = model.sents2elmo(trg, output_layer=layer)
 
             print("BOW", end="")
-            D = utils.get_cosine_distance(
+            D = 1 - cosine_similarity(
                 np.array([emb.mean(0) for emb in src_embs]),
                 np.array([emb.mean(0) for emb in trg_embs]))
             results = []
@@ -104,7 +105,7 @@ if __name__ == '__main__':
             f.write('\t'.join(['BOW', str(layer)] + list(map(str, results))) + '\n')
 
             print("SIF", end="")
-            D = utils.get_cosine_distance(
+            D = 1 - cosine_similarity(
                 get_sif_embeddings(src, src_embs, freqs),
                 get_sif_embeddings(trg, trg_embs, freqs))
             results = []
@@ -114,7 +115,7 @@ if __name__ == '__main__':
             f.write('\t'.join(['SIF', str(layer)] + list(map(str, results))) + '\n')
 
             print("TfIdf", end="")
-            D = utils.get_cosine_distance(
+            D = 1 - cosine_similarity(
                 get_tfidf_embeddings(src, src_embs),
                 get_tfidf_embeddings(trg, trg_embs))
             results = []

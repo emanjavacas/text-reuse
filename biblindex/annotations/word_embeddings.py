@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import cosine_similarity
 
 import utils
 import sentence_embeddings
@@ -18,7 +19,9 @@ random.seed(1001)
 
 def get_wmd(src, trg, W, w2i):
     # get word dists
-    dists = utils.get_cosine_distance(W, W)
+    print("Computing similarity matrix")
+    dists = 1 - cosine_similarity(W)
+    print("Done")
     D = np.zeros((len(src), len(trg)))
     for i in range(len(src)):
         for j in range(len(trg)):
@@ -111,7 +114,7 @@ if __name__ == '__main__':
         # BOW
         print("BOW", end="")
         embedder = sentence_embeddings.BOW(W, words)
-        D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+        D = 1 - cosine_similarity(embedder.transform(src), embedder.transform(trg))
         results = []
         for step in steps:
             print(".", end='', flush=True)
@@ -122,7 +125,7 @@ if __name__ == '__main__':
         # SIF
         print("SIF", end="")
         embedder = sentence_embeddings.SIF(W, words, freqs)
-        D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+        D = 1 - cosine_similarity(embedder.transform(src), embedder.transform(trg))
         results = []
         for step in steps:
             print(".", end='', flush=True)
@@ -143,7 +146,7 @@ if __name__ == '__main__':
         # TfIdf
         print("TfIdf", end="")
         embedder = sentence_embeddings.TFIDF(W, words)
-        D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
+        D = 1 - cosine_similarity(embedder.transform(src), embedder.transform(trg))
         results = []
         for step in steps:
             print(".", end='', flush=True)
