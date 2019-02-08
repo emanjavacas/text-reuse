@@ -46,12 +46,18 @@ def load_source():
     return docs
 
 
-def enrich_with_lemmas_from_source(docs, path='../splits/SCT1-5.json'):
+def load_origin(path='../splits/SCT1-5.json'):
     with open(path) as f:
         source = {}
         for line in f:
             doc = json.loads(line)
             source[doc['id']] = doc
+
+    return source
+
+
+def enrich_with_lemmas_from_source(docs):
+    source = load_origin()
 
     for doc in docs:
         sdoc = source[doc['id']]
@@ -69,14 +75,25 @@ if __name__ == '__main__':
     model = pie.SimpleModel.load("./capitula.model.tar")
     source, bible = load_source(), utils.load_bible()
     source = enrich_with_lemmas_from_source(source)
+    origin = load_origin()
 
-    with open("gold2.csv", "w") as f:
+    with open("gold.csv", "w") as f, open("gold.window.csv", "w") as f2:
         for doc in source:
             src, trg = doc['selectedText'], bible[doc['id']]
             src_id, trg, trg_id = doc['id'], trg['text'], trg['url']
             if len(src.split()) > 40:  # ignore longer than 40 words
                 continue
-            # src_lemma = ' '.join(utils.lemmatize(model, src.lower().split())['lemma'])
             src_lemma = doc['text_lemma']
             trg_lemma = ' '.join(utils.lemmatize(model, trg.lower().split())['lemma'])
             f.write('\t'.join([src_id, trg_id, src, trg, src_lemma, trg_lemma]) + '\n')
+
+            # window
+            sdoc = source[doc['id']]
+            src = [w['word'] for w in sdoc['textdata']]
+            src = [w['word'] for w in sdoc['textcontext']['prev'][-5:]] + src
+            src += [w['word'] for w in sdoc['textcontext']['pos'][:5]]
+            src_lemma = [w['lemma'] for w in sdoc['textdata']]
+            src_lemma = [w['lemma'] for w in sdoc['textcontext']['prev'][-5:]] + src_lemma
+            src_lemma += [w['lemma'] for w in sdoc['textcontext']['pos'][:5]]
+
+            f2.write('\t'.join([src_id, trg_id, src, trg, src_lemma, trg_lemma]) + '\n')
