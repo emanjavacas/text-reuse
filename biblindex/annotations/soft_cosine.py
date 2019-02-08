@@ -92,7 +92,7 @@ def soft_cosine4(ss, ts, M):
         num = s[None, :] @ MtsT
         den1 = np.sqrt(s @ M @ s)
         sims[idx] = (num / ((np.ones(len(den2)) * den1) * den2))[0]
-    return sims
+    return np.nan_to_num(sims, copy=False)
 
 
 def get_M(S, vocab, factor=1):

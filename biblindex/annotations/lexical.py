@@ -55,17 +55,6 @@ def tf_idf_baseline(src, trg, min_freq=1):
     return D
 
 
-def get_d_min_freq(s, freqs):
-    """
-    Modeling the scholars: Detecting intertextuality  through enhanced
-    word-level n-gram matching
-
-    distance between the two most infrequent  words  in  each  of  the  two  phrases
-    """
-    a, b, *_ = sorted(set(s), key=lambda w: freqs[w])
-    return abs(s.index(a) - s.index(b))
-
-
 def get_d_max_dist(s, matching):
     """
     'Evaluating the literary significance of text re-use in Latin poetry'
@@ -83,16 +72,35 @@ def get_d_max_dist(s, matching):
     return d
 
 
+def get_d_min_freq(s, matching):
+    """
+    Modeling the scholars: Detecting intertextuality  through enhanced
+    word-level n-gram matching
+
+    (maximum) distance between the two most infrequent words in the phrase
+    """
+    by_freq = collections.defaultdict(list)
+    for w, c in collections.Counter(s).most_common():
+        by_freq[c].append(w)
+    min_freqs = list(sorted(by_freq))
+    if len(by_freq[min_freqs[0]]) >= 2:
+        return get_d_max_dist(s, by_freq[min_freqs[0]])
+    else:
+        return get_d_max_dist(s, sum((by_freq[c] for c in min_freqs[:2]), []))
+
+
 def tesserae_score(s1, s2, freqs1, freqs2, method='min_freq'):
 
     matching = set(s1).intersection(set(s2))
     if len(matching) < 2:
         return 0
 
-    f_t = sum([1 / freqs1[w] for w in matching])
-    f_s = sum([1 / freqs2[w] for w in matching])
+    s1_c = collections.Counter(w for w in s1 if w in matching)
+    s2_c = collections.Counter(w for w in s2 if w in matching)
+    f_t = sum([1 / s1_c[w] for w in matching])
+    f_s = sum([1 / s2_c[w] for w in matching])
     if method == 'min_freq':
-        d_t, d_s = get_d_min_freq(s1, freqs1), get_d_min_freq(s2, freqs2)
+        d_t, d_s = get_d_min_freq(s1, matching), get_d_min_freq(s2, matching)
     elif method == 'max_dist':
         d_t, d_s = get_d_max_dist(s1, matching), get_d_max_dist(s2, matching)
     else:
@@ -104,7 +112,6 @@ def tesserae_score(s1, s2, freqs1, freqs2, method='min_freq'):
 def tesserae_baseline(src, trg, src_freqs, trg_freqs, at=1, method='min_freq'):
     scores = []
     output = []
-    print("t", method)
     for idx, s1 in enumerate(src):
         tscores = [tesserae_score(s1, s2, src_freqs, trg_freqs, method) for s2 in trg]
         idxs = np.argsort(tscores)[::-1][:at]
