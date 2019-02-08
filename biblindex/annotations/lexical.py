@@ -60,7 +60,7 @@ def get_d_min_freq(s, freqs):
     Modeling the scholars: Detecting intertextuality  through enhanced
     word-level n-gram matching
 
-    distance between the two most infrequent  words  in  each  of  the  two  phrases
+    distance between the two most infrequent words in each of the two phrases
     """
     a, b, *_ = sorted(set(s), key=lambda w: freqs[w])
     return abs(s.index(a) - s.index(b))
