@@ -11,8 +11,6 @@ from lxml import etree
 import numpy as np
 import pie
 
-import stop
-
 
 LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
 
@@ -38,7 +36,7 @@ def process_sent(s, lower=True, remnonalpha=True, remstop=True):
         s = re.findall(r"(?u)\b\w\w+\b", s)
     # remove stopwords
     if remstop:
-        s = [w for w in s if w not in stop.STOPWORDS]
+        s = [w for w in s if w not in STOPWORDS]
 
     return s
 
@@ -194,3 +192,115 @@ def timing():
     start = time.time()
     yield
     print(time.time() - start)
+
+
+STOPWORDS = [
+    "ab",
+    "ac",
+    "ad",
+    "adhic",
+    "aliqui",
+    "aliquis",
+    "an",
+    "ante",
+    "apud",
+    "at",
+    "atque",
+    "aut",
+    "autem",
+    "cum",
+    "cur",
+    "de",
+    "deinde",
+    "dum",
+    "eius",
+    "ego",
+    "enim",
+    "ergo",
+    "es",
+    "est",
+    "et",
+    "etiam",
+    "etsi",
+    "ex",
+    "fio",
+    "haud",
+    "hic",
+    "hoc",
+    "huic",
+    "iam",
+    "idem",
+    "igitur",
+    "ille",
+    "in",
+    "infra",
+    "inter",
+    "interim",
+    "ipse",
+    "is",
+    "ita",
+    "magis",
+    "modo",
+    "mox",
+    "nam",
+    "ne",
+    "nec",
+    "necque",
+    "neque",
+    "nisi",
+    "non",
+    "nos",
+    "o",
+    "ob",
+    "per",
+    "possum",
+    "post",
+    "pro",
+    "quae",
+    "quam",
+    "quare",
+    "qui",
+    "quia",
+    "quicumque",
+    "quidem",
+    "quilibet",
+    "quis",
+    "quisnam",
+    "quisquam",
+    "quisque",
+    "quisquis",
+    "quo",
+    "quoniam",
+    "sed",
+    "si",
+    "sic",
+    "sive",
+    "sub",
+    "sui",
+    "sum",
+    "super",
+    "suus",
+    "tam",
+    "tamen",
+    "trans",
+    "tu",
+    "te",
+    "tuus",
+    "tum",
+    "ubi",
+    "uel",
+    "uero",
+    "ut",
+    "vel",
+    "vero",
+    # punctuation
+    ",",
+    ".",
+    "?",
+    ":",
+    ";",
+    "«",
+    "»",
+]
+
+STOPWORDS = set(STOPWORDS)
