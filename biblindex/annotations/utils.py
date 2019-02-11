@@ -41,7 +41,7 @@ def process_sent(s, lower=True, remnonalpha=True, remstop=True):
     return s
 
 
-def load_gold(path='gold.csv', return_ids=False, lemmas=False, **kwargs):
+def load_gold(path='bernard-gold.csv', return_ids=False, lemmas=False, **kwargs):
 
     src, trg = [], []
     with open(path) as f:
@@ -152,7 +152,6 @@ def load_bible(path='../splits/SCT1-5.json'):
             if obj['type'] == 'inexactQuotation-allusion':
                 bible_by_id[obj['id']] = {'text': obj['ref'], 'url': obj['url']}
     return bible_by_id
-
 
 
 def lemmatize(model, sent, use_beam=True, beam_width=12, device='cpu'):

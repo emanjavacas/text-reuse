@@ -120,10 +120,12 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--lemmas', action='store_true')
+    parser.add_argument('--gold_path', default='bernard-gold.csv')
+    parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--n_background', default=35000, type=int)
     args = parser.parse_args()
 
-    src, trg = utils.load_gold(lemmas=args.lemmas)
+    src, trg = utils.load_gold(path=args.gold_path, lemmas=args.lemmas)
     bg = utils.load_background(lemmas=args.lemmas)
     random.shuffle(bg)
     trg += bg[:args.n_background]
@@ -143,7 +145,7 @@ if __name__ == '__main__':
     trg_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in trg)
     src_embs, trg_embs = src_embs.toarray(), trg_embs.toarray()
 
-    outputpath = 'results/soft_cosine.{}'.format(args.n_background)
+    outputpath = 'results/soft_cosine.{}.{}'.format(args.outputname, args.n_background)
 
     if args.lemmas:
         outputpath += '.lemmas'

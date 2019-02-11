@@ -70,6 +70,8 @@ def plot_background(lemma=False, at=20):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--gold_path', default='bernard-gold.csv')
+    parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--n_background', type=int, default=35000)
     parser.add_argument('--lemmas', action='store_true')
     parser.add_argument('--avoid_lexical', action='store_true')
@@ -77,7 +79,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     src, trg = [], []
-    for s, t in zip(*utils.load_gold(lemmas=args.lemmas)):
+    for s, t in zip(*utils.load_gold(path=args.gold_path, lemmas=args.lemmas)):
         if args.avoid_lexical and len(set(s).intersection(set(t))) >= args.threshold:
             continue
         src.append(s)
@@ -100,7 +102,7 @@ if __name__ == '__main__':
 
     w2i = {w: idx for idx, w in enumerate(words)}
 
-    outfile = 'results/distributional.{}'.format(args.n_background)
+    outfile = 'results/distributional.{}.{}'.format(args.outputname, args.n_background)
     if args.lemmas:
         outfile += '.lemmas'
     if args.avoid_lexical:
@@ -153,30 +155,3 @@ if __name__ == '__main__':
             results.append(utils.get_scores_at(D, at=step))
         f.write('\t'.join(['TfIdf'] + list(map(str, results))) + '\n')
         print()
-
-
-# src, trg = load_gold()
-# bg = load_background()
-# random.shuffle(bg)
-# vocab = set(w for s in src + trg for w in s)
-# W, words = utils.load_embeddings(vocab)
-# print(len(bg))
-# bg = [s for s in bg if any(w in set(words) for w in s)]
-# print(len(bg))
-# trg += bg
-# freqs = utils.load_frequencies(words=set(words))
-# freqs = [freqs.get(w, min(freqs.values())) for w in words]
-# w2i = {w: idx for idx, w in enumerate(words)}
-# embedder = sentence_embeddings.SIF(W, words, freqs)
-# embedder = sentence_embeddings.BOW(W, words)
-# D = utils.get_cosine_distance(embedder.transform(src), embedder.transform(trg))
-
-# utils.get_scores_at(D, at=5)
-
-
-# src, trg = [], []
-# for s, t in zip(*utils.load_gold(lemmas=True)):
-#     if len(set(s).intersection(set(t))) >= 2:
-#         continue
-#     src.append(s)
-#     trg.append(t)

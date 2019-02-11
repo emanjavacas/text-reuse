@@ -23,7 +23,7 @@ def load_notes(user):
     return set()
 
 
-def load_source():
+def load_docs():
     by_user = {user: extract.load_annotations(user) for user in extract.DATASETS}
     shared = extract.get_shared(by_user)
 
@@ -47,7 +47,7 @@ def load_source():
     return docs
 
 
-def load_origin(path='../splits/SCT1-5.json'):
+def load_source(path='../splits/SCT1-5.json'):
     with open(path) as f:
         source = {}
         for line in f:
@@ -58,7 +58,7 @@ def load_origin(path='../splits/SCT1-5.json'):
 
 
 def enrich_with_lemmas_from_source(docs):
-    source = load_origin()
+    source = load_source()
 
     for doc in docs:
         sdoc = source[doc['id']]
@@ -80,13 +80,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     model = pie.SimpleModel.load(args.lemma_model)
-    source, bible = load_source(), utils.load_bible()
-    source = enrich_with_lemmas_from_source(source)
-    origin = load_origin()
+    docs, bible = load_docs(), utils.load_bible()
+    docs = enrich_with_lemmas_from_source(docs)
+    source = load_source()
 
     gold, window = "bernard-gold.csv", "bernard-gold-window-{}.csv".format(args.window)
     with open(gold, "w") as f, open(window, "w") as f2:
-        for doc in source:
+        for doc in docs:
             src, trg = doc['selectedText'], bible[doc['id']]
             src_id, trg, trg_id = doc['id'], trg['text'], trg['url']
             if len(src.split()) > 40:  # ignore longer than 40 words
@@ -99,10 +99,11 @@ if __name__ == '__main__':
             sdoc = source[doc['id']]
             src = [w['word'] for w in sdoc['textdata']]
             src = [w['word'] for w in sdoc['textcontext']['prev'][-args.window:]] + src
-            src += [w['word'] for w in sdoc['textcontext']['pos'][:args.window]]
+            src += [w['word'] for w in sdoc['textcontext']['next'][:args.window]]
+            src = ' '.join(src)
             src_lemma = [w['lemma'] for w in sdoc['textdata']]
             src_lemma = [w['lemma'] for w in sdoc['textcontext']['prev'][-args.window:]]\
                         + src_lemma
-            src_lemma += [w['lemma'] for w in sdoc['textcontext']['pos'][:args.window]]
-
+            src_lemma += [w['lemma'] for w in sdoc['textcontext']['next'][:args.window]]
+            src_lemma = ' '.join(src_lemma)
             f2.write('\t'.join([src_id, trg_id, src, trg, src_lemma, trg_lemma]) + '\n')

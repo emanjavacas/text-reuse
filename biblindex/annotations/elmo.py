@@ -51,6 +51,7 @@ def get_wmd(src, trg, W, w2i):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--gold_path', default='bernard-gold.csv')
     parser.add_argument('--n_background', type=int, default=35000)
     parser.add_argument('--modelpath', default=PATH)
     parser.add_argument('--avoid_lexical', action='store_true')
