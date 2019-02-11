@@ -34,7 +34,8 @@ def load_source():
     docs = []
 
     for i in shared:
-        docs.append(select(*[by_user[user][i] for user in by_user if i in by_user[user]]))
+        docs.append(
+            select(*[by_user[user][i] for user in by_user if i in by_user[user]]))
 
     for user in by_user:
         for idx, doc in by_user[user].items():
@@ -72,12 +73,19 @@ def enrich_with_lemmas_from_source(docs):
 
 if __name__ == '__main__':
     import pie
-    model = pie.SimpleModel.load("./capitula.model.tar")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--window', type=int, default=10)
+    parser.add_argument('--lemma_model', default="./capitula.model.tar")
+    args = parser.parse_args()
+
+    model = pie.SimpleModel.load(args.lemma_model)
     source, bible = load_source(), utils.load_bible()
     source = enrich_with_lemmas_from_source(source)
     origin = load_origin()
 
-    with open("gold.csv", "w") as f, open("gold.window.csv", "w") as f2:
+    gold, window = "bernard-gold.csv", "bernard-gold-window-{}.csv".format(args.window)
+    with open(gold, "w") as f, open(window, "w") as f2:
         for doc in source:
             src, trg = doc['selectedText'], bible[doc['id']]
             src_id, trg, trg_id = doc['id'], trg['text'], trg['url']
@@ -90,10 +98,11 @@ if __name__ == '__main__':
             # window
             sdoc = source[doc['id']]
             src = [w['word'] for w in sdoc['textdata']]
-            src = [w['word'] for w in sdoc['textcontext']['prev'][-5:]] + src
-            src += [w['word'] for w in sdoc['textcontext']['pos'][:5]]
+            src = [w['word'] for w in sdoc['textcontext']['prev'][-args.window:]] + src
+            src += [w['word'] for w in sdoc['textcontext']['pos'][:args.window]]
             src_lemma = [w['lemma'] for w in sdoc['textdata']]
-            src_lemma = [w['lemma'] for w in sdoc['textcontext']['prev'][-5:]] + src_lemma
-            src_lemma += [w['lemma'] for w in sdoc['textcontext']['pos'][:5]]
+            src_lemma = [w['lemma'] for w in sdoc['textcontext']['prev'][-args.window:]]\
+                        + src_lemma
+            src_lemma += [w['lemma'] for w in sdoc['textcontext']['pos'][:args.window]]
 
             f2.write('\t'.join([src_id, trg_id, src, trg, src_lemma, trg_lemma]) + '\n')
