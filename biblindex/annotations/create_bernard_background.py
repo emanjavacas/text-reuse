@@ -33,7 +33,7 @@ if __name__ == '__main__':
     model.to(args.device)
     bible = list(utils.load_bible().values())
     texts = []
-    with open('background.bible.csv', 'w') as outf:
+    with open('bernard-background.csv', 'w') as outf:
         for f in os.listdir('./NT'):
             if not f.endswith('xml'):
                 continue

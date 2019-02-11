@@ -121,12 +121,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--lemmas', action='store_true')
     parser.add_argument('--gold_path', default='bernard-gold.csv')
+    parser.add_argument('--background_path', default='bernard-background.csv')
     parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--n_background', default=35000, type=int)
     args = parser.parse_args()
 
     src, trg = utils.load_gold(path=args.gold_path, lemmas=args.lemmas)
-    bg = utils.load_background(lemmas=args.lemmas)
+    bg = utils.load_background(path=args.background_path, lemmas=args.lemmas)
     random.shuffle(bg)
     trg += bg[:args.n_background]
 

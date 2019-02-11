@@ -59,7 +59,7 @@ def load_gold(path='bernard-gold.csv', return_ids=False, lemmas=False, **kwargs)
     return src, trg
 
 
-def load_background(path='background.bible.csv', return_ids=False, lemmas=False,
+def load_background(path='bernard-background.csv', return_ids=False, lemmas=False,
                     **kwargs):
     bg = []
     with open(path) as f:

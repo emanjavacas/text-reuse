@@ -114,7 +114,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--gold_path', default='bernard-gold.csv')
-    parser.add_argument('--background_path', default='background.bible.csv')
+    parser.add_argument('--background_path', default='bernard-background.csv')
     parser.add_argument('--freqs_path', default='/home/manjavacas/corpora/latin.freqs')
     parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--lemmas', action='store_true')
