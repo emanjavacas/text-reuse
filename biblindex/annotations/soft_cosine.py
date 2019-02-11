@@ -1,6 +1,4 @@
 
-import joblib
-import math
 import random
 
 import tqdm
@@ -95,7 +93,7 @@ def soft_cosine4(ss, ts, M):
     return np.nan_to_num(sims, copy=False)
 
 
-def get_M(S, vocab, factor=1):
+def get_M(S, vocab, beta=1):
     """
     Transform an input similarity matrix for a possibly reduced vocabulary space
     into the similarity matrix for the whole space (i.e. include OOVs). It assumes
@@ -104,14 +102,14 @@ def get_M(S, vocab, factor=1):
     "aardvark" is 1001. By default the similarity vector for OOVs is a one-hot vector
     implying that the word is only similar to itself.
 
-    S : input similarity matrix (e.g. sklearn.metrics.pairwise.cosine_similarity(W) 
+    S : input similarity matrix (e.g. sklearn.metrics.pairwise.cosine_similarity(W)
         where W is your embedding matrix), np.array(vocab, vocab)
     vocab : list of all words in your space
-    factor : raise your similarities to this power to reduce model confidence on word
+    beta : raise your similarities to this power to reduce model confidence on word
         similarities
     """
     M = np.zeros([len(vocab), len(vocab)])
-    M[:len(S), :len(S)] = np.power(np.clip(S, a_min=0, a_max=np.max(S)), factor)
+    M[:len(S), :len(S)] = np.power(np.clip(S, a_min=0, a_max=np.max(S)), beta)
     np.fill_diagonal(M, 1)
     return M
 
@@ -122,17 +120,22 @@ if __name__ == '__main__':
     parser.add_argument('--lemmas', action='store_true')
     parser.add_argument('--gold_path', default='bernard-gold.csv')
     parser.add_argument('--background_path', default='bernard-background.csv')
+    parser.add_argument('--embeddings_path', default=utils.LATIN)
+    parser.add_argument('--stopwords_path', default='bernard.stop')
     parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--n_background', default=35000, type=int)
     args = parser.parse_args()
 
-    src, trg = utils.load_gold(path=args.gold_path, lemmas=args.lemmas)
-    bg = utils.load_background(path=args.background_path, lemmas=args.lemmas)
+    stopwords = utils.load_stopwords(args.stopwords_path)
+    src, trg = utils.load_gold(
+        path=args.gold_path, lemmas=args.lemmas, stopwords=stopwords)
+    bg = utils.load_background(
+        path=args.background_path, lemmas=args.lemmas, stopwords=stopwords)
     random.shuffle(bg)
     trg += bg[:args.n_background]
 
     original_vocab = set([w for s in src + trg for w in s])
-    W, vocab = utils.load_embeddings(original_vocab)
+    W, vocab = utils.load_embeddings(original_vocab, path=args.embeddings_path)
     for w in original_vocab:
         if w not in vocab:
             vocab.append(w)
@@ -153,15 +156,27 @@ if __name__ == '__main__':
     outputpath += '.csv'
 
     with open(outputpath, 'w') as f:
-        f.write('\t'.join(['method', 'factor'] + list(map(str, steps))) + '\n')
-        for factor in [1, 1.5, 2, 5, 7.5, 10, 15]:
-            sims = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, factor=factor))
+        f.write('\t'.join(['method', 'beta', 'alpha'] + list(map(str, steps))) + '\n')
+        # Semantic
+        for beta in [1, 1.5, 2, 5, 7.5, 10, 15, 50, 100, 10000]:
+            sims = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, beta=beta))
             scores = []
             for step in steps:
                 scores.append(utils.get_scores_at(sims, at=step, input_type='sim'))
             scores = list(map(str, scores))
-            f.write('\t'.join(['soft_cosine', str(factor)] + scores) + '\n')
+            f.write('\t'.join(['semantic', str(beta)] + scores) + '\n')
+            f.flush()
 
+        # Levenshtein
+        lev = utils.get_levenshtein_S(sorted(vocab, key=lambda w: vocab[w]))
+        for beta in [1, 1.5, 2, 5, 7.5, 10, 15][1:]:
+            sims = soft_cosine4(src_embs, trg_embs, lev ** beta)
+            scores = []
+            for step in steps:
+                scores.append(utils.get_scores_at(sims, at=step, input_type='sim'))
+            scores = list(map(str, scores))
+            f.write('\t'.join(['levenshtein', str(beta)] + scores) + '\n')
+            f.flush()
 
 # n_background = 10000
 # src, trg = utils.load_gold()

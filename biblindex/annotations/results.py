@@ -4,6 +4,8 @@ import glob
 import utils
 import pandas as pd
 
+import utils
+
 
 def read_csv(path, **kwargs):
     rows = []
@@ -21,9 +23,9 @@ def read_csv(path, **kwargs):
     return rows
 
 
-def get_support(avoid_lexical=True, lemmas=False, threshold=2):
+def get_support(stopwords, avoid_lexical=True, lemmas=False, threshold=2):
     total = 0
-    for s, t in zip(*utils.load_gold(lemmas=lemmas)):
+    for s, t in zip(*utils.load_gold(lemmas=lemmas, stopwords=stopwords)):
         if avoid_lexical and len(set(s).intersection(set(t))) >= threshold:
             continue
         total += 1
@@ -31,7 +33,9 @@ def get_support(avoid_lexical=True, lemmas=False, threshold=2):
     return total
 
 
-total_support = get_support(avoid_lexical=False)
+bernard_stop = utils.load_stopwords('bernard.stop')
+
+total_support = get_support(bernard_stop, avoid_lexical=False)
 
 dataset = []
 for f in glob.glob('./results/*csv'):
@@ -57,7 +61,7 @@ for f in glob.glob('./results/*csv'):
             # threshold fixed at 2
             str(background) + '.lemmas' if lemmas else background, 2))
 
-        support = get_support(avoid_lexical=True, lemmas=lemmas)
+        support = get_support(bernard_stop, avoid_lexical=True, lemmas=lemmas)
 
         for row in rows:
             if not row['method'].startswith('tesserae'):

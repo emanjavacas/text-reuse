@@ -27,7 +27,12 @@ def get_scores_at(D, at=5, input_type='dist'):
         raise ValueError("Unknown `input_type`: {}".format(input_type))
 
 
-def process_sent(s, lower=True, remnonalpha=True, remstop=True):
+def load_stopwords(path):
+    with open(path) as f:
+        return set(w.strip() for w in f.readlines())
+
+
+def process_sent(s, stopwords=set(), lower=True, remnonalpha=True, remstop=True):
     # lower
     if lower:
         s = s.lower()
@@ -36,7 +41,7 @@ def process_sent(s, lower=True, remnonalpha=True, remstop=True):
         s = re.findall(r"(?u)\b\w\w+\b", s)
     # remove stopwords
     if remstop:
-        s = [w for w in s if w not in STOPWORDS]
+        s = [w for w in s if w not in stopwords]
 
     return s
 
@@ -134,14 +139,20 @@ def load_frequencies(path='/home/manjavacas/corpora/latin.freqs', words=None):
     total = 0
     with open(path) as f:
         for line in f:
-            w, freq = line.strip().split()
-            freq = int(freq)
+            try:
+                w, freq = line.strip().split()
+            except:
+                continue
+            freq = float(freq)
             total += freq
             if words and w not in words:
                 continue
             freqs[w] = freq
 
-    return {w: freq / total for w, freq in freqs.items()}
+    # if freqs are already normalized, values won't change
+    freqs = {w: freq / total for w, freq in freqs.items()}
+
+    return freqs
 
 
 def load_bible(path='../splits/SCT1-5.json'):
@@ -157,6 +168,20 @@ def load_bible(path='../splits/SCT1-5.json'):
 def lemmatize(model, sent, use_beam=True, beam_width=12, device='cpu'):
     inp, _ = pie.data.pack_batch(model.label_encoder, [sent], device=device)
     return model.predict(inp, "lemma", use_beam=use_beam, beam_width=beam_width)
+
+
+def get_levenshtein_S(words):
+    import Levenshtein
+    D = np.zeros((len(words), len(words)))
+    for i in range(len(words)):
+        for j in range(i + 1, len(words)):
+            D[i, j] = Levenshtein.distance(words[i], words[j])
+            D[i, j] = D[i, j] / max(len(words[i]), len(words[j]))
+    # make symmetric
+    D += D.T
+    # normalize
+    D = 1 - D
+    return D
 
 
 def pairwise_dists(embs):
@@ -192,115 +217,3 @@ def timing():
     start = time.time()
     yield
     print(time.time() - start)
-
-
-STOPWORDS = [
-    "ab",
-    "ac",
-    "ad",
-    "adhic",
-    "aliqui",
-    "aliquis",
-    "an",
-    "ante",
-    "apud",
-    "at",
-    "atque",
-    "aut",
-    "autem",
-    "cum",
-    "cur",
-    "de",
-    "deinde",
-    "dum",
-    "eius",
-    "ego",
-    "enim",
-    "ergo",
-    "es",
-    "est",
-    "et",
-    "etiam",
-    "etsi",
-    "ex",
-    "fio",
-    "haud",
-    "hic",
-    "hoc",
-    "huic",
-    "iam",
-    "idem",
-    "igitur",
-    "ille",
-    "in",
-    "infra",
-    "inter",
-    "interim",
-    "ipse",
-    "is",
-    "ita",
-    "magis",
-    "modo",
-    "mox",
-    "nam",
-    "ne",
-    "nec",
-    "necque",
-    "neque",
-    "nisi",
-    "non",
-    "nos",
-    "o",
-    "ob",
-    "per",
-    "possum",
-    "post",
-    "pro",
-    "quae",
-    "quam",
-    "quare",
-    "qui",
-    "quia",
-    "quicumque",
-    "quidem",
-    "quilibet",
-    "quis",
-    "quisnam",
-    "quisquam",
-    "quisque",
-    "quisquis",
-    "quo",
-    "quoniam",
-    "sed",
-    "si",
-    "sic",
-    "sive",
-    "sub",
-    "sui",
-    "sum",
-    "super",
-    "suus",
-    "tam",
-    "tamen",
-    "trans",
-    "tu",
-    "te",
-    "tuus",
-    "tum",
-    "ubi",
-    "uel",
-    "uero",
-    "ut",
-    "vel",
-    "vero",
-    # punctuation
-    ",",
-    ".",
-    "?",
-    ":",
-    ";",
-    "«",
-    "»",
-]
-
-STOPWORDS = set(STOPWORDS)

@@ -72,6 +72,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--gold_path', default='bernard-gold.csv')
     parser.add_argument('--background_path', default='bernard-background.csv')
+    parser.add_argument('--stopwords_path', default='bernard.stop')
     parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--n_background', type=int, default=35000)
     parser.add_argument('--lemmas', action='store_true')
@@ -79,8 +80,11 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', type=int, default=2)
 
     args = parser.parse_args()
+
+    stopwords = utils.load_stopwords(args.stopwords_path)
     src, trg = [], []
-    for s, t in zip(*utils.load_gold(path=args.gold_path, lemmas=args.lemmas)):
+    for s, t in zip(*utils.load_gold(
+            path=args.gold_path, lemmas=args.lemmas, stopwords=stopwords)):
         if args.avoid_lexical and len(set(s).intersection(set(t))) >= args.threshold:
             continue
         src.append(s)
@@ -90,7 +94,8 @@ if __name__ == '__main__':
 
     bg = []
     if args.n_background > 0:
-        bg = utils.load_background(path=args.background_path, lemmas=args.lemmas)
+        bg = utils.load_background(
+            path=args.background_path, lemmas=args.lemmas, stopwords=stopwords)
         random.shuffle(bg)
         bg = bg[:args.n_background]
     vocab = set(w for s in src + trg + bg for w in s)

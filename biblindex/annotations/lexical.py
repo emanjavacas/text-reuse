@@ -116,17 +116,22 @@ if __name__ == '__main__':
     parser.add_argument('--gold_path', default='bernard-gold.csv')
     parser.add_argument('--background_path', default='bernard-background.csv')
     parser.add_argument('--freqs_path', default='/home/manjavacas/corpora/latin.freqs')
+    parser.add_argument('--stopwords_path', default='bernard.stop')
     parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--lemmas', action='store_true')
     parser.add_argument('--n_background', default=35000, type=int)
     args = parser.parse_args()
 
-    src, trg = utils.load_gold(path=args.gold_path, lemmas=args.lemmas)
-    bg = utils.load_background(path=args.background_path, lemmas=args.lemmas)
+    stopwords = utils.load_stopwords(args.stopwords_path)
+    src, trg = utils.load_gold(
+        path=args.gold_path, lemmas=args.lemmas, stopwords=stopwords)
+    bg = utils.load_background(
+        path=args.background_path, lemmas=args.lemmas, stopwords=stopwords)
     random.shuffle(bg)
     trg += bg[:args.n_background]
     vocab = set(w for s in src + trg for w in s)
     freqs = utils.load_frequencies(path=args.freqs_path, words=vocab)
+
     for w in vocab:
         if w not in freqs:
             freqs[w] = min(freqs.values())
