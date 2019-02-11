@@ -73,6 +73,8 @@ if __name__ == '__main__':
     parser.add_argument('--gold_path', default='bernard-gold.csv')
     parser.add_argument('--background_path', default='bernard-background.csv')
     parser.add_argument('--stopwords_path', default='bernard.stop')
+    parser.add_argument('--freqs_path', default='/home/manjavacas/corpora/latin.freqs')
+    parser.add_argument('--embeddings_path', default=utils.LATIN)
     parser.add_argument('--outputname', default='bernard')
     parser.add_argument('--n_background', type=int, default=35000)
     parser.add_argument('--lemmas', action='store_true')
@@ -90,7 +92,6 @@ if __name__ == '__main__':
         src.append(s)
         trg.append(t)
 
-    print("Number of pairs", len(src))
 
     bg = []
     if args.n_background > 0:
@@ -100,13 +101,20 @@ if __name__ == '__main__':
         bg = bg[:args.n_background]
     vocab = set(w for s in src + trg + bg for w in s)
     W, words = utils.load_embeddings(vocab)
-    # remove bg sents without words (after checking for them in the embeddings)
+    # remove sents without words (after checking for them in the embeddings)
+    src, trg = zip(*[(s, t) for s, t in zip(src, trg)
+                     if any(w in set(words) for w in s) and \
+                     any(w in set(words) for w in t)])
+    src, trg = list(src), list(trg)
     bg = [s for s in bg if any(w in set(words) for w in s)]
     trg += bg
-    freqs = utils.load_frequencies(words=set(words))
+
+    freqs = utils.load_frequencies(path=args.freqs_path, words=set(words))
     freqs = [freqs.get(w, min(freqs.values())) for w in words]
 
     w2i = {w: idx for idx, w in enumerate(words)}
+
+    print("Number of pairs", len(src))
 
     outfile = 'results/distributional.{}.{}'.format(args.outputname, args.n_background)
     if args.lemmas:

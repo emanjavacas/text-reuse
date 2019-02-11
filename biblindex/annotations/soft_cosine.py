@@ -156,7 +156,7 @@ if __name__ == '__main__':
     outputpath += '.csv'
 
     with open(outputpath, 'w') as f:
-        f.write('\t'.join(['method', 'beta', 'alpha'] + list(map(str, steps))) + '\n')
+        f.write('\t'.join(['method', 'beta'] + list(map(str, steps))) + '\n')
         # Semantic
         for beta in [1, 1.5, 2, 5, 7.5, 10, 15, 50, 100, 10000]:
             sims = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, beta=beta))
@@ -169,7 +169,7 @@ if __name__ == '__main__':
 
         # Levenshtein
         lev = utils.get_levenshtein_S(sorted(vocab, key=lambda w: vocab[w]))
-        for beta in [1, 1.5, 2, 5, 7.5, 10, 15][1:]:
+        for beta in [1, 1.5, 2, 5, 7.5, 10, 15]:
             sims = soft_cosine4(src_embs, trg_embs, lev ** beta)
             scores = []
             for step in steps:
