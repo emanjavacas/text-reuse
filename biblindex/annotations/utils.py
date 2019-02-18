@@ -7,6 +7,7 @@ import glob
 import re
 import json
 
+import tqdm
 from lxml import etree
 import numpy as np
 import pie
@@ -27,7 +28,44 @@ def get_scores_at(D, at=5, input_type='dist'):
         raise ValueError("Unknown `input_type`: {}".format(input_type))
 
 
-def load_stopwords(path):
+def get_average_rank(D, input_type='dist'):
+    index = np.arange(0, len(D))
+    index = np.repeat(index[:, None], D.shape[1], axis=1)
+    argsort = np.argsort(D, axis=1)
+    _, ranking = np.where(index == argsort)
+    if input_type == 'sim':
+        ranking = D.shape[1] - 1 - ranking
+    ranking += 1
+    return float((1/ranking).sum()) / D.shape[0]
+
+
+@contextlib.contextmanager
+def writer(fp, steps, keys):
+    # write header
+    fp.write('\t'.join(['metric', '@', 'score'] + list(sorted(keys))) + '\n')
+    
+    def write(D, input_type='dist', **kwargs):
+        for key in kwargs:
+            assert key in keys, "Unknown input key {}".format(key)
+        vals = list(map(str, (kwargs[k] for k in sorted(keys))))
+
+        rank = get_average_rank(D, input_type=input_type)
+        fp.write('\t'.join(['MAP', '0', str(rank)] + vals) + '\n')
+        for step in steps:
+            score = get_scores_at(D, at=step, input_type=input_type)
+            fp.write('\t'.join(['P', str(step), str(score)] + vals) + '\n')
+            fp.flush()
+
+    yield write
+
+
+def dump_scores(fp, D, steps, input_type, **kwargs):
+    fp.write()
+    for step in steps:
+        atK = get_scores_at(D, at=step, input_type=input_type)
+
+
+def load_stopwords(path='bernard.stop'):
     with open(path) as f:
         return set(w.strip() for w in f.readlines())
 
@@ -173,7 +211,7 @@ def lemmatize(model, sent, use_beam=True, beam_width=12, device='cpu'):
 def get_levenshtein_S(words):
     import Levenshtein
     D = np.zeros((len(words), len(words)))
-    for i in range(len(words)):
+    for i in tqdm.tqdm(range(len(words)), total=len(words)):
         for j in range(i + 1, len(words)):
             D[i, j] = Levenshtein.distance(words[i], words[j])
             D[i, j] = D[i, j] / max(len(words[i]), len(words[j]))
@@ -182,6 +220,34 @@ def get_levenshtein_S(words):
     # normalize
     D = 1 - D
     return D
+
+
+def load_levenshtein(path, words):
+    D = np.zeros((len(words), len(words)))
+    words_ = {w: idx for idx, w in enumerate(words)}
+    done = set()
+    with open(path) as f:
+        for line in f:
+            w1, w2, d = line.strip().split('\t')
+            if w1 in words_ and w2 in words_:
+                D[words_[w1], words_[w2]] = float(d) / max(len(w1), len(w2))
+                done.add(w1)
+                done.add(w2)
+
+    diff = done.difference(set(words_))
+    if diff:
+        print("missing {} words".format(len(diff)))
+
+    D += D.T
+    D = 1 - D
+
+    return D
+
+
+def get_random_matrix(vocab):
+    S = np.random.normal(loc=0.5, scale=0.05, size=(len(vocab), len(vocab)))
+    np.fill_diagonal(S, 1)
+    return S
 
 
 def pairwise_dists(embs):

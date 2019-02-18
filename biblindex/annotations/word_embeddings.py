@@ -124,48 +124,29 @@ if __name__ == '__main__':
     outfile += '.csv'
 
     with open(outfile, 'w') as f:
-        # header
-        f.write('\t'.join(['method', *list(map(str, steps))]) + '\n')
+        with utils.writer(f, steps, ['method']) as write:
+            # BOW
+            print("BOW", end="")
+            embedder = sentence_embeddings.BOW(W, words)
+            D = cosine_similarity(embedder.transform(src), embedder.transform(trg))
+            write(D, input_type='sim', method='BOW')
+            print()
 
-        # BOW
-        print("BOW", end="")
-        embedder = sentence_embeddings.BOW(W, words)
-        D = 1 - cosine_similarity(embedder.transform(src), embedder.transform(trg))
-        results = []
-        for step in steps:
-            print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=step))
-        f.write('\t'.join(['BOW'] + list(map(str, results))) + '\n')
-        print()
+            # TfIdf
+            print("TfIdf", end="")
+            embedder = sentence_embeddings.TFIDF(W, words, src + trg)
+            D = cosine_similarity(embedder.transform(src), embedder.transform(trg))
+            write(D, input_type='sim', method='tfidf')
+            print()
 
-        # SIF
-        print("SIF", end="")
-        embedder = sentence_embeddings.SIF(W, words, freqs)
-        D = 1 - cosine_similarity(embedder.transform(src), embedder.transform(trg))
-        results = []
-        for step in steps:
-            print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=step))
-        f.write('\t'.join(['SIF'] + list(map(str, results))) + '\n')
-        print()
+            # # SIF
+            # print("SIF", end="")
+            # embedder = sentence_embeddings.SIF(W, words, freqs)
+            # D = cosine_similarity(embedder.transform(src), embedder.transform(trg))
+            # write(D, input_type='sim', method='BOW')
+            # print()
 
-        # WMD
-        print("WMD", end="")
-        results = []
-        D = get_wmd(src, trg, W, w2i)
-        for step in steps:
-            print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=step))
-        f.write('\t'.join(['WMD'] + list(map(str, results))) + '\n')
-        print()
-
-        # TfIdf
-        print("TfIdf", end="")
-        embedder = sentence_embeddings.TFIDF(W, words)
-        D = 1 - cosine_similarity(embedder.transform(src), embedder.transform(trg))
-        results = []
-        for step in steps:
-            print(".", end='', flush=True)
-            results.append(utils.get_scores_at(D, at=step))
-        f.write('\t'.join(['TfIdf'] + list(map(str, results))) + '\n')
-        print()
+            # WMD
+            print("WMD", end="")
+            write(get_wmd(src, trg, W, w2i), method='WMD')
+            print()

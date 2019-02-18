@@ -4,8 +4,9 @@ import math
 import random
 
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_distances
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.metrics.pairwise import cosine_distances, cosine_similarity
+from sklearn.decomposition import TruncatedSVD
 import tqdm
 
 import utils
@@ -47,14 +48,33 @@ def get_vocab(sents, min_freq):
 
 def tf_idf_baseline(src, trg, min_freq=1):
     vocab = get_vocab(src + trg, min_freq)
+    tfidf = TfidfVectorizer(vocabulary=vocab).fit(' '.join(s) for s in src + trg)
 
-    src_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in src)
-    trg_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in trg)
+    src_embs = tfidf.transform(' '.join(s) for s in src)
+    trg_embs = tfidf.transform(' '.join(s) for s in trg)
 
     D = cosine_distances(src_embs, trg_embs)
 
     return D
 
+
+def bow_baseline(src, trc, min_freq=1):
+    vocab = get_vocab(src + trg, min_freq)
+    bow = CountVectorizer(vocabulary=vocab).fit(' '.join(s) for s in src + trg)
+    src_embs = bow.transform(' '.join(s) for s in src)
+    trg_embs = bow.transform(' '.join(s) for s in trg)
+
+    return cosine_distances(src_embs, trg_embs)
+
+
+def lsi_baseline(src, trg, min_freq=1, vectorizer=CountVectorizer, npc=10):
+    vocab = get_vocab(src + trg, min_freq)
+    vectorizer = vectorizer(vocabulary=vocab)
+    embs = vectorizer.fit_transform(' '.join(s) for s in src + trg)
+    embs = TruncatedSVD(n_components=npc).fit_transform(embs)
+
+    return cosine_similarity(embs[:len(src)], embs[len(src):])
+    
 
 def get_d_min_freq(s, freqs):
     """
@@ -107,7 +127,7 @@ def tesserae_baseline(src, trg, freqs, method='max_dist'):
     for idx, s1 in tqdm.tqdm(enumerate(src)):
         D.append([tesserae_score(s1, s2, freqs, method) for s2 in trg])
 
-    return D
+    return np.array(D)
 
 
 if __name__ == '__main__':
@@ -142,16 +162,13 @@ if __name__ == '__main__':
     outputpath += '.csv'
 
     with open(outputpath, 'w') as f:
-        f.write('\t'.join(['method'] + list(map(str, steps))) + '\n')
-        for method in ['max_dist', 'min_freq']:
-            D = tesserae_baseline(src, trg, freqs, method=method)
-            scores = []
-            for step in steps:
-                scores.append(str(utils.get_scores_at(D, at=step, input_type='sim')))
-            f.write('\t'.join(['tesserae-' + method] + scores) + '\n')
+        with utils.writer(f, steps, ['method', 'npc']) as write:
+            for npc in [10, 15, 20, 50]:
+                write(lsi_baseline(src, trg, npc=npc), method='lsi', npc=npc)
 
-        D = tf_idf_baseline(src, trg)
-        scores = []
-        for step in steps:
-            scores.append(str(utils.get_scores_at(D, at=step)))
-        f.write('\t'.join(['tfidf'] + scores) + '\n')
+            for method in ['max_dist', 'min_freq']:
+                D = tesserae_baseline(src, trg, freqs, method=method)
+                write(D, input_type='sim', method=method, npc=0)
+
+            write(bow_baseline(src, trg), method='bow', npc=0)
+            write(tf_idf_baseline(src, trg), method='tfidf', npc=0)

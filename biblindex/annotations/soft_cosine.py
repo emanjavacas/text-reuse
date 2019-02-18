@@ -4,7 +4,7 @@ import random
 import tqdm
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 
 import utils
 from steps import steps
@@ -145,9 +145,9 @@ if __name__ == '__main__':
     S = cosine_similarity(W)
     print("Done")
 
-    src_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in src)
-    trg_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in trg)
-    src_embs, trg_embs = src_embs.toarray(), trg_embs.toarray()
+    tfidf = TfidfVectorizer(vocabulary=vocab).fit(' '.join(s) for s in src + trg)
+    src_embs = tfidf.transform(' '.join(s) for s in src).toarray()
+    trg_embs = tfidf.transform(' '.join(s) for s in trg).toarray()
 
     outputpath = 'results/soft_cosine.{}.{}'.format(args.outputname, args.n_background)
 
@@ -155,59 +155,30 @@ if __name__ == '__main__':
         outputpath += '.lemmas'
     outputpath += '.csv'
 
+    betas = [1, 2, 5, 7.5, 15, 100, 10000]
+
     with open(outputpath, 'w') as f:
-        f.write('\t'.join(['method', 'beta'] + list(map(str, steps))) + '\n')
-        # Semantic
-        for beta in [1, 1.5, 2, 5, 7.5, 10, 15, 50, 100, 10000]:
-            sims = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, beta=beta))
-            scores = []
-            for step in steps:
-                scores.append(utils.get_scores_at(sims, at=step, input_type='sim'))
-            scores = list(map(str, scores))
-            f.write('\t'.join(['semantic', str(beta)] + scores) + '\n')
-            f.flush()
+        with utils.writer(f, steps, ['method', 'beta', 'a']) as write:
 
-        # Levenshtein
-        lev = utils.get_levenshtein_S(sorted(vocab, key=lambda w: vocab[w]))
-        for beta in [1, 1.5, 2, 5, 7.5, 10, 15]:
-            sims = soft_cosine4(src_embs, trg_embs, lev ** beta)
-            scores = []
-            for step in steps:
-                scores.append(utils.get_scores_at(sims, at=step, input_type='sim'))
-            scores = list(map(str, scores))
-            f.write('\t'.join(['levenshtein', str(beta)] + scores) + '\n')
-            f.flush()
+            for beta in betas:
+                D = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, beta=beta))
+                write(D, input_type='sim', method='semantic', beta=beta, a=0)
 
-# n_background = 10000
-# src, trg = utils.load_gold()
-# bg = utils.load_background()
-# random.shuffle(bg)
-# trg += bg[:n_background]
-# original_vocab = set([w for s in src + trg for w in s])
-# W, vocab = utils.load_embeddings(original_vocab)
-# for w in original_vocab:
-#     if w not in vocab:
-#         vocab.append(w)
-# vocab = {w: idx for idx, w in enumerate(vocab)}
+            # Levenshtein
+            lev = utils.get_levenshtein_S(sorted(vocab, key=lambda w: vocab[w]))
+            for beta in betas:
+                D = soft_cosine4(src_embs, trg_embs, lev ** beta)
+                write(D, input_type='sim', method='levenshtein', beta=beta, a=0)
 
-# print("Computing similarity matrix")
-# S = cosine_similarity(W)
-# M = np.zeros([len(vocab), len(vocab)]) + np.mean(S)
-# M[:len(S),:len(S)] = S
-# np.fill_diagonal(M, 1)
-# print("Done")
+            # # Interpolation
+            # lev = lev ** 5 # best beta
+            # M = get_M(S, vocab, beta=5)
+            # for a in [a / 10 for a in range(0, 11, 1)][::-1]:
+            #     D = soft_cosine4(src_embs, trg_embs, a * lev + (1 - a) * M)
+            #     write(D, input_type='sim', method='interpolation', beta=0, a=a)
 
-# src_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in src)
-# trg_embs = TfidfVectorizer(vocabulary=vocab).fit_transform(' '.join(s) for s in trg)
-
-# ss,ts =src_embs.toarray(), trg_embs.toarray()
-
-# output = np.zeros((len(ss), len(ts)))
-# with timing():
-#     sims = soft_cosine3(ss[0], ts, M)
-#     # MtsT = M @ ts.T
-#     # den2 = np.sqrt(np.diag(ts @ MtsT))
-#     for idx, s in tqdm.tqdm(enumerate(ss)):
-#         num = s[None, :] @ MtsT
-#         den1 = np.sqrt(s @ M @ s)
-#         output[idx] = (num / ((np.ones(len(den2)) * den1) * den2))[0]
+            # Random
+            M = utils.get_random_matrix(vocab)
+            for beta in betas:
+                D = soft_cosine4(src_embs, trg_embs, M ** beta)
+                write(D, input_type='sim', method='random', beta=beta, a=0)

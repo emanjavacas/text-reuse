@@ -40,16 +40,16 @@ class SIF:
 
 
 class TFIDF:
-    def __init__(self, W, words, **kwargs):
+    def __init__(self, W, words, sents, **kwargs):
         # attributes
         self.W = W
         self.words = {w: idx for idx, w in enumerate(words)}
+        self.tfidf = TfidfVectorizer().fit(' '.join(s) for s in sents)
 
     def transform(self, sents):
-        sents = [' '.join([w for w in sent if w in self.words]) for sent in sents]
-        tfidf = TfidfVectorizer()
-        X = tfidf.fit_transform(sents)
-        idx2w = tfidf.get_feature_names()
+        sents = [' '.join([w for w in s if w in self.words]) for s in sents]
+        X = self.tfidf.transform(sents)
+        idx2w = self.tfidf.get_feature_names()
         for s_idx in range(len(sents)):
             sents[s_idx] = sum(
                 weight * self.W[self.words[idx2w[i]]]
