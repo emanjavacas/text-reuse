@@ -244,6 +244,40 @@ def load_levenshtein(path, words):
     return D
 
 
+def get_synonyms():
+    if os.path.isfile('latin.synonyms'):
+        synonyms = {}
+        with open('latin.synonyms') as f:
+            for line in f:
+                lem, *lems = line.strip().split('\t')
+                synonyms[lem] = set(lems)
+    else:
+        from multiwordnet.wordnet import WordNet
+        wn = WordNet('latin')
+        synonyms = collections.defaultdict(set)
+        for lemma in tqdm.tqdm(wn.lemmas, total=len(list(wn.lemmas))):
+            if lemma.synonyms:
+                synonyms[lemma.lemma].update(l.lemma for l in lemma.synonyms)
+
+    return synonyms
+
+
+def get_synonym_S(vocab):
+    vocab_ = {w: idx for idx, w in enumerate(vocab)}
+    syns = get_synonyms()
+    S = np.zeros((len(vocab), len(vocab)))
+    np.fill_diagonal(S, 1)
+    for w in vocab:
+        if w in syns:
+            for w2 in syns[w]:
+                if w2 in vocab_:
+                    S[vocab_[w], vocab_[w2]] = 1 / len(syns[w])
+
+    S += S.T
+
+    return S
+
+
 def get_random_matrix(vocab):
     S = np.random.normal(loc=0.5, scale=0.05, size=(len(vocab), len(vocab)))
     np.fill_diagonal(S, 1)
