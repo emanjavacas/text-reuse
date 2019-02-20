@@ -27,10 +27,9 @@ def get_sif_embeddings(sents, s_embs, freqs, a=1e-3, npc=1):
     return s_embs
 
 
-def get_tfidf_embeddings(sents, s_embs):
-    sents = [' '.join(sent) for sent in sents]
-    tfidf = TfidfVectorizer()
-    X = tfidf.fit_transform(sents)
+def get_tfidf_embeddings(tfidf, sents, s_embs):
+    sents = [' '.join(s) for s in sents]
+    X = tfidf.transform(sents)
     for i, embs in enumerate(s_embs):
         sents[i] = np.mean(
             [w * emb for (_, w), emb in zip(X[i].todok().items(), embs)],
@@ -79,61 +78,41 @@ if __name__ == '__main__':
     words = list(set(w for s in trg + src for w in s))
     freqs = utils.load_frequencies(words=set(words))
     freqs = {w: freqs.get(w, min(freqs.values())) for w in words}
-
     w2i = {w: idx for idx, w in enumerate(words)}
 
     outfile = 'results/elmo.{}.csv'.format(args.n_background)
 
     with open(outfile, 'w') as f:
-        # header
-        f.write('\t'.join(['method', 'output_layer', *list(map(str, steps))]) + '\n')
+        with utils.writer(f, steps, ['method', 'output_layer']) as write:
+            for layer in [-1, 0, 1, 2]:
+                print("Encoding")
+                src_embs = model.sents2elmo(src, output_layer=layer)
+                trg_embs = model.sents2elmo(trg, output_layer=layer)
 
-        layers = [-1, 0, 1, 2]
-        for layer in layers:
+                print("BOW", end="")
+                D = cosine_similarity(
+                    np.array([emb.mean(0) for emb in src_embs]),
+                    np.array([emb.mean(0) for emb in trg_embs]))
+                write(D, input_type='sim', 'BOW', str(layer))
+                print()
 
-            print("Encoding")
-            src_embs = model.sents2elmo(src, output_layer=layer)
-            trg_embs = model.sents2elmo(trg, output_layer=layer)
+                print("SIF", end="")
+                D = cosine_similarity(
+                    get_sif_embeddings(src, src_embs, freqs),
+                    get_sif_embeddings(trg, trg_embs, freqs))
+                write(D, input_type='sim', 'SIF', str(layer))
 
-            print("BOW", end="")
-            D = 1 - cosine_similarity(
-                np.array([emb.mean(0) for emb in src_embs]),
-                np.array([emb.mean(0) for emb in trg_embs]))
-            results = []
-            for step in steps:
-                print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=step))
-            f.write('\t'.join(['BOW', str(layer)] + list(map(str, results))) + '\n')
+                print("TfIdf", end="")
+                tfidf = TfidfVectorizer().fit([' '.join(s) for s in src + trg])
+                D = cosine_similarity(
+                    get_tfidf_embeddings(tfidf, src, src_embs),
+                    get_tfidf_embeddings(tfidf, trg, trg_embs))
+                write(D, input_type='sim', 'tfidf', str(layer))
+                print()
 
-            print("SIF", end="")
-            D = 1 - cosine_similarity(
-                get_sif_embeddings(src, src_embs, freqs),
-                get_sif_embeddings(trg, trg_embs, freqs))
-            results = []
-            for step in steps:
-                print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=step))
-            f.write('\t'.join(['SIF', str(layer)] + list(map(str, results))) + '\n')
+                if layer != 0:  # don't do wmd at any other level than word
+                    continue
 
-            print("TfIdf", end="")
-            D = 1 - cosine_similarity(
-                get_tfidf_embeddings(src, src_embs),
-                get_tfidf_embeddings(trg, trg_embs))
-            results = []
-            for step in steps:
-                print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=step))
-            f.write('\t'.join(['TfIdf', str(layer)] + list(map(str, results))) + '\n')
-
-            if layer != 0:  # don't do wmd at any other level than word
-                continue
-
-            print("WMD", end="")
-            results = []
-            W = np.vstack(model.sents2elmo([[w] for w in words], output_layer=0))
-            D = get_wmd(src, trg, W, w2i)
-            for step in steps:
-                print(".", end='', flush=True)
-                results.append(utils.get_scores_at(D, at=step))
-            f.write('\t'.join(['WMD', str(layer)] + list(map(str, results))) + '\n')
-            print()
+                print("WMD", end="")
+                write(get_wmd(src, trg, W, w2i), 'WMD', str(layer))
+                print()

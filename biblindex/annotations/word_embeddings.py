@@ -100,7 +100,7 @@ if __name__ == '__main__':
         random.shuffle(bg)
         bg = bg[:args.n_background]
     vocab = set(w for s in src + trg + bg for w in s)
-    W, words = utils.load_embeddings(vocab)
+    W, words = utils.load_embeddings(vocab, path=args.embeddings_path)
     # remove sents without words (after checking for them in the embeddings)
     src, trg = zip(*[(s, t) for s, t in zip(src, trg)
                      if any(w in set(words) for w in s) and \

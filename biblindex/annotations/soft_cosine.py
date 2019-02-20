@@ -141,10 +141,6 @@ if __name__ == '__main__':
             vocab.append(w)
     vocab = {w: idx for idx, w in enumerate(vocab)}
 
-    print("Computing similarity matrix")
-    S = cosine_similarity(W)
-    print("Done")
-
     tfidf = TfidfVectorizer(vocabulary=vocab).fit(' '.join(s) for s in src + trg)
     src_embs = tfidf.transform(' '.join(s) for s in src).toarray()
     trg_embs = tfidf.transform(' '.join(s) for s in trg).toarray()
@@ -160,15 +156,30 @@ if __name__ == '__main__':
     with open(outputpath, 'w') as f:
         with utils.writer(f, steps, ['method', 'beta', 'a']) as write:
 
+            # Embedding
+            S = cosine_similarity(W)
             for beta in betas:
                 D = soft_cosine4(src_embs, trg_embs, get_M(S, vocab, beta=beta))
                 write(D, input_type='sim', method='semantic', beta=beta, a=0)
 
             # Levenshtein
-            lev = utils.get_levenshtein_S(sorted(vocab, key=lambda w: vocab[w]))
+            S = utils.get_levenshtein_S(sorted(vocab, key=lambda w: vocab[w]))
             for beta in betas:
-                D = soft_cosine4(src_embs, trg_embs, lev ** beta)
+                D = soft_cosine4(src_embs, trg_embs, S ** beta)
                 write(D, input_type='sim', method='levenshtein', beta=beta, a=0)
+
+            # Random
+            S = utils.get_random_matrix(vocab)
+            for beta in betas:
+                D = soft_cosine4(src_embs, trg_embs, S ** beta)
+                write(D, input_type='sim', method='random', beta=beta, a=0)
+
+            # WordNet
+            print("WordNet")
+            S = utils.get_synonym_S(sorted(vocab, key=lambda w: vocab[w]))
+            for beta in betas:
+                D = soft_cosine4(src_embs, trg_embs, S ** beta)
+                write(D, input_type='sim', method='wordnet', beta=beta, a=0)
 
             # # Interpolation
             # lev = lev ** 5 # best beta
@@ -176,9 +187,3 @@ if __name__ == '__main__':
             # for a in [a / 10 for a in range(0, 11, 1)][::-1]:
             #     D = soft_cosine4(src_embs, trg_embs, a * lev + (1 - a) * M)
             #     write(D, input_type='sim', method='interpolation', beta=0, a=a)
-
-            # Random
-            M = utils.get_random_matrix(vocab)
-            for beta in betas:
-                D = soft_cosine4(src_embs, trg_embs, M ** beta)
-                write(D, input_type='sim', method='random', beta=beta, a=0)

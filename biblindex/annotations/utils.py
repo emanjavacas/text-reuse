@@ -13,7 +13,8 @@ import numpy as np
 import pie
 
 
-LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
+# LATIN = '/home/manjavacas/corpora/word_embeddings/latin.embeddings'
+LATIN = 'bernard.fasttext.embeddings'
 
 
 def get_scores_at(D, at=5, input_type='dist'):
@@ -159,6 +160,7 @@ def load_bernard_freqs(lemmas=False, **kwargs):
 
 
 def load_embeddings(words, path=LATIN):
+    print("loading {} words from {}".format(len(words), path))
     embs, vocab = [], []
     with open(path) as f:
         next(f)
