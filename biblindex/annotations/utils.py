@@ -96,7 +96,7 @@ def load_gold(path='bernard-gold.csv', return_ids=False, lemmas=False, **kwargs)
             s1, s2 = process_sent(s1, **kwargs), process_sent(s2, **kwargs)
 
             if return_ids:
-                s1, s2 = (id1, s1), (id2, s1)
+                s1, s2 = (id1, s1), (id2, s2)
             src.append(s1)
             trg.append(s2)
 

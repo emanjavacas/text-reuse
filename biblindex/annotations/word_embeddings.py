@@ -1,4 +1,5 @@
 
+import tqdm
 import os
 import glob
 import random
@@ -23,7 +24,7 @@ def get_wmd(src, trg, W, w2i):
     dists = 1 - cosine_similarity(W)
     print("Done")
     D = np.zeros((len(src), len(trg)))
-    for i in range(len(src)):
+    for i in tqdm.tqdm(range(len(src))):
         for j in range(len(trg)):
             D[i, j] = wmd.get_wmd(' '.join(src[i]), ' '.join(trg[j]), dists, w2i)
 
