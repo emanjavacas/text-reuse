@@ -19,6 +19,10 @@ if __name__ == '__main__':
     for s in src + trg:
         for w in s:
             vocab[w] += 1
+    src, _ = utils.load_gold(path='bernard-gold-window-10.csv')
+    for s in src:
+        for w in s:
+            vocab[w] += 1
 
     with open(args.outputname, 'w+') as f:
         for w, _ in vocab.most_common():
